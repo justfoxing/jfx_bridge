@@ -5,14 +5,14 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="ghidra_bridge",
+    name="jfx_bridge",
     version=subprocess.check_output("git describe", shell=True).decode("utf-8").strip(),
     author="justfoxing",
     author_email="justfoxingprojects@gmail.com",
-    description="RPC bridge from Python to Ghidra Jython",
+    description="RPC bridge to/from Python2/Python3/Jython/etc",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/justfoxing/ghidra_bridge",
+    url="https://github.com/justfoxing/jfx_bridge",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python",

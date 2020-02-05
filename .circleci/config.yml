@@ -33,40 +33,8 @@ workflows:
 jobs:
   test:
     docker:
-      - image: bskaggs/ghidra
+      - image: circleci/python:3.8.1
         user: root
-        command: bash
-
-    steps:
-      - run:
-          name: Setup git and python3 environment
-          command: |
-            apt-get update || apt-get update 
-            apt-get install -y git python3 python3-pip
-            pip3 install nose
-
-      - checkout:
-          path: /tmp/ghidra_bridge
-        
-      - run:
-          name: Spawn ghidra bridge server and run tests
-          command: |
-            /opt/ghidra/support/analyzeHeadless /tmp TestProject -import /bin/bash -noanalysis -scriptPath /tmp/ghidra_bridge -preScript ghidra_bridge_server.py >/tmp/script.log 2>/tmp/script.err & # Run the ghidra_bridge_server in a headless ghidra
-            ( tail -f /tmp/script.err & ) | grep -q "ghidra_bridge.bridge:serving!" # pause until we see the ghidra_bridge_server start logging messages
-            cd /tmp/ghidra_bridge
-            mkdir test-reports
-            nosetests --with-xunit --xunit-file=/tmp/ghidra_bridge/test-reports/nosetests.xml
-            python3 -c "import ghidra_bridge; b = ghidra_bridge.GhidraBridge(namespace=globals()); print(getState().getCurrentAddress())" # run a quick test for ghidra_bridge
-            
-      - store_test_results:
-          path: /tmp/ghidra_bridge/test-reports
-          
-      - store_artifacts:
-          path: /tmp/ghidra_bridge/test-reports
-            
-  build:
-    docker:
-      - image: circleci/python:3.7.2
 
     working_directory: ~/repo
 
@@ -74,7 +42,37 @@ jobs:
       - checkout
 
       - run:
-          name: Build ghidra_bridge package
+          name: Setup python2 and test environment
+          command: |
+            apt-get update || apt-get update 
+            apt-get install -y python2.7 python3-pip
+            pip3 install nose
+
+      - run:
+          name: Spawn bridge server and run tests
+          command: |
+            python2.7 test_bridge_server.py >/tmp/script.log 2>/tmp/script.err & # Run the test jfx_bridge server
+            ( tail -f /tmp/script.err & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            mkdir test-reports
+            nosetests --with-xunit --xunit-file=test-reports/nosetests.xml
+
+      - store_test_results:
+          path: test-reports
+          
+      - store_artifacts:
+          path: test-reports
+            
+  build:
+    docker:
+      - image: circleci/python:3.8.1
+
+    working_directory: ~/repo
+
+    steps:
+      - checkout
+
+      - run:
+          name: Build jfx_bridge package
           command: |
             pip3 install --user --upgrade setuptools # make sure we've got the latest version, to support using Markdown
             python3 setup.py sdist bdist_wheel --universal
@@ -89,7 +87,7 @@ jobs:
   
   release-pypi:
     docker:
-      - image: circleci/python:3.7.2
+      - image: circleci/python:3.8.1
     steps:
       - run:
           name: Get twine

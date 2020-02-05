@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals  # string literals are all unicode
-from __future__ import division # if python 2, force truediv division (default in 3)
+from __future__ import division  # if python 2, force truediv division (default in 3)
 
 import base64
 import logging
@@ -46,6 +46,7 @@ class TestBridge(unittest.TestCase):
     def test_call_multi_args(self):
         mod = TestBridge.test_bridge.remote_import("re")
 
+        # TODO - known issue with server in python3 - enums aren't handled correctly
         remote_obj = mod.compile("foo", mod.IGNORECASE)
 
         self.assertTrue(remote_obj is not None)
@@ -274,8 +275,7 @@ class TestBridge(unittest.TestCase):
 
         self.assertEquals(str(remote_obj._bridged_get_type()),
                           "<class 'uuid.UUID'>")
-        self.assertEquals(
-            str(remote_obj._bridged_get_type()._bridged_get_type()), "<type 'type'>")
+        self.assertTrue("'type'" in str(remote_obj._bridged_get_type()._bridged_get_type()))
 
     def test_remote_eval(self):
         self.assertEquals(3, TestBridge.test_bridge.remote_eval("1+2"))
@@ -306,16 +306,16 @@ class TestBridge(unittest.TestCase):
         self.assertTrue(td1 < td2)
         self.assertTrue(td2 >= td1)
         self.assertEquals(remote_datetime.timedelta(3), td1 + td2)
-        self.assertEquals(td1, td2//2) # we use floordiv here, truediv tested below
-        
+        self.assertEquals(td1, td2//2)  # we use floordiv here, truediv tested below
+
     def test_truediv(self):
         # check we cleanly fallback from truediv to div
         # timedelta in jython2.7 implements __div__ but not __truediv__
         remote_datetime = TestBridge.test_bridge.remote_import("datetime")
         td1 = remote_datetime.timedelta(1)
         td2 = remote_datetime.timedelta(2)
-        self.assertEquals(td1, td2/2) 
-        
+        self.assertEquals(td1, td2/2)
+
     def test_len(self):
         # check we can handle len
         remote_collections = TestBridge.test_bridge.remote_import("collections")
