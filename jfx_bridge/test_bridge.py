@@ -6,6 +6,7 @@ import base64
 import logging
 import unittest
 import uuid
+import time
 
 from . import bridge
 
@@ -127,7 +128,13 @@ class TestBridge(unittest.TestCase):
         # Note: we include False now to detect failure to correctly unpack "False" strings into bools
         test_list = [1, 0xFFFFFFFF, True, False, "string", "unicode_string🐉🔍",
                      (1, 2, 3), [4, 5, 6], {7: 8, 9: 10}, uuid.uuid4(), pow, 1.5]
-        # send the list in to create a remote list (which comes straight back)s
+                    
+        # gross hack - race where remote objects are being deleted after the remote list is created, 
+        # but before the response makes it back (so remote del commands arrive first and nuke the 
+        # handles). TODO - look into an actual fix, like keep handles until their local objects are 
+        # deleted as well?
+        time.sleep(1)
+        # send the list in to create a remote list (which comes straight back)
         created_list = remote_list(test_list)
 
         # check it's the same
