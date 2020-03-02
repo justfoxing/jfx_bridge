@@ -746,7 +746,7 @@ class BridgeConn(object):
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
     def local_create_type(self, args_dict):
-        name = args_dict[NAME]
+        name = str(args_dict[NAME]) # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
         dct = self.deserialize_from_dict(args_dict[DICT])
 
