@@ -128,10 +128,10 @@ class TestBridge(unittest.TestCase):
         # Note: we include False now to detect failure to correctly unpack "False" strings into bools
         test_list = [1, 0xFFFFFFFF, True, False, "string", "unicode_string🐉🔍",
                      (1, 2, 3), [4, 5, 6], {7: 8, 9: 10}, uuid.uuid4(), pow, 1.5]
-                    
-        # gross hack - race where remote objects are being deleted after the remote list is created, 
-        # but before the response makes it back (so remote del commands arrive first and nuke the 
-        # handles). TODO - look into an actual fix, like keep handles until their local objects are 
+
+        # gross hack - race where remote objects are being deleted after the remote list is created,
+        # but before the response makes it back (so remote del commands arrive first and nuke the
+        # handles). TODO - look into an actual fix, like keep handles until their local objects are
         # deleted as well?
         time.sleep(1)
         # send the list in to create a remote list (which comes straight back)
@@ -331,3 +331,18 @@ class TestBridge(unittest.TestCase):
         dq.append(2)
         dq.append(3)
         self.assertEquals(3, len(dq))
+
+    def test_zzzzzz_shutdown(self):
+        # test shutdown last
+        result = TestBridge.test_bridge.remote_shutdown()
+        self.assertTrue(result[bridge.SHUTDOWN])
+
+        # give it a second to tear down
+        time.sleep(1)
+
+        # try to reconnect, should fail with connection refused
+        with self.assertRaises(ConnectionRefusedError):
+            fail_bridge = bridge.BridgeClient(
+                connect_to_port=bridge.DEFAULT_SERVER_PORT, loglevel=logging.DEBUG)
+
+            fail_bridge.remote_import("datetime")

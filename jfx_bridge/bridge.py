@@ -91,6 +91,7 @@ EVAL = "eval"
 EXPR = "expr"
 RESULT = "result"
 ERROR = "error"
+SHUTDOWN = "shutdown"
 
 HANDLE = "handle"
 NAME = "name"
@@ -105,6 +106,8 @@ MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_2
 MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_2
 
 DEFAULT_RESPONSE_TIMEOUT = 2  # seconds
+
+GLOBAL_BRIDGE_SHUTDOWN = False
 
 
 class BridgeException(Exception):
@@ -253,7 +256,7 @@ class BridgeCommandHandlerThreadPool(object):
         self.ready_threads.release()
 
         try:
-            while not self.shutdown_flag:
+            while not self.shutdown_flag and not GLOBAL_BRIDGE_SHUTDOWN:
                 # get the read lock, so we can see if there's anything to do
                 with self.command_list_read_lock:
                     if len(self.command_list) > 0:
@@ -294,7 +297,7 @@ class BridgeReceiverThread(threading.Thread):
         # threadpool to handle creating/running threads to handle commands
         threadpool = BridgeCommandHandlerThreadPool(self.bridge_conn)
 
-        while True:  # TODO shutdown flag
+        while not GLOBAL_BRIDGE_SHUTDOWN:
             try:
                 data = read_size_and_data_from_socket(
                     self.bridge_conn.get_socket())
@@ -323,6 +326,8 @@ class BridgeReceiverThread(threading.Thread):
                 # eat exceptions and continue, don't want a bad message killing the recv loop
                 self.bridge_conn.logger.exception(e)
 
+        self.bridge_conn.logger.debug("Reciever thread shutdown")
+
 
 class BridgeCommandHandler(socketserver.BaseRequestHandler):
 
@@ -334,6 +339,10 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
             # run the recv loop directly
             BridgeReceiverThread(BridgeConn(
                 self.server.bridge, self.request, response_timeout=self.server.bridge.response_timeout)).run()
+
+            # only get here if the client has requested we shutdown the bridge
+            self.server.bridge.logger.debug("Receiver thread exited - bridge shutdown requested")
+            self.server.bridge.shutdown()
         except BridgeClosedException:
             pass  # expected - the client has closed the connection
         except Exception as e:
@@ -693,7 +702,12 @@ class BridgeConn(object):
     def remote_del(self, handle):
         self.logger.debug("remote_del {}".format(handle))
         command_dict = {CMD: DEL, ARGS: {HANDLE: handle}}
-        self.send_cmd(command_dict, get_response=False)
+        try:
+            self.send_cmd(command_dict, get_response=False)
+        except ConnectionError:
+            # get a lot of these when shutting down if the bridge connection has already been torn down before the bridged objects are deleted
+            # just ignore - we want to know if the other operations fail, but deleting failing we can probably get away with
+            pass
 
     def local_del(self, args_dict):
         handle = args_dict[HANDLE]
@@ -746,7 +760,7 @@ class BridgeConn(object):
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
     def local_create_type(self, args_dict):
-        name = str(args_dict[NAME]) # type name can't be unicode string in python2 - force to string
+        name = str(args_dict[NAME])  # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
         dct = self.deserialize_from_dict(args_dict[DICT])
 
@@ -849,8 +863,26 @@ class BridgeConn(object):
 
         return self.serialize_to_dict(result)
 
-    def handle_command(self, message_dict):
+    def remote_shutdown(self):
+        self.logger.debug("remote_shutdown")
+        result = self.deserialize_from_dict(self.send_cmd({CMD: SHUTDOWN}))
+        print(result)
+        if SHUTDOWN in result and result[SHUTDOWN]:
+            # shutdown received - as a gross hack, send a followup that we don't expect to return, to unblock some loops and actually let things shutdown
+            self.send_cmd({CMD: SHUTDOWN}, get_response=False)
 
+        return result
+
+    def local_shutdown(self):
+        global GLOBAL_BRIDGE_SHUTDOWN
+
+        self.logger.debug("local_shutdown")
+
+        GLOBAL_BRIDGE_SHUTDOWN = True
+
+        return self.serialize_to_dict({SHUTDOWN: True})
+
+    def handle_command(self, message_dict):
         response_dict = {VERSION: COMMS_VERSION_2,
                          ID: message_dict[ID],
                          TYPE: RESULT,
@@ -878,6 +910,8 @@ class BridgeConn(object):
             response_dict[RESULT] = self.local_isinstance(command_dict[ARGS])
         elif command_dict[CMD] == EVAL:
             response_dict[RESULT] = self.local_eval(command_dict[ARGS])
+        elif command_dict[CMD] == SHUTDOWN:
+            response_dict[RESULT] = self.local_shutdown()
 
         self.logger.debug("Responding with {}".format(response_dict))
         return json.dumps(response_dict).encode("utf-8")
@@ -929,9 +963,10 @@ class BridgeServer(threading.Thread):
         self.shutdown()
 
     def shutdown(self):
-        self.logger.info("Shutting down bridge")
         if self.is_serving:
+            self.logger.info("Shutting down bridge")
             self.is_serving = False
+            self.server.shutdown()
             self.server.server_close()
 
 
@@ -970,7 +1005,8 @@ class BridgeClient(object):
         """
         return self.client.remote_eval(eval_string, timeout_override=timeout_override, **kwargs)
 
-    # TODO shutdown
+    def remote_shutdown(self):
+        return self.client.remote_shutdown()
 
 
 def _is_bridged_object(object):
