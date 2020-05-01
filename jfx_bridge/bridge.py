@@ -1111,7 +1111,7 @@ class BridgedClassMethod(object):
             remote_method = remote_type._bridged_get("__div__")
 
         if remote_method is None:
-            raise AttributeError()
+            raise AttributeError("Did not find %s method" % self.method_name)
 
         return functools.partial(remote_method, instance)
 
