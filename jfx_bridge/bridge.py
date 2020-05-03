@@ -361,7 +361,13 @@ class BridgeHandle(object):
         self.attrs = dir(local_obj)
 
     def to_dict(self):
-        return {HANDLE: self.handle, TYPE: type(self.local_obj).__name__, ATTRS: self.attrs, REPR: repr(self.local_obj)}
+        try:
+            # For objects this has not just the class, but the full module path
+            # e.g. "ghidra.program.database.ProgramDB" for currentProgram instead of just "ProgramDB"
+            _type = type(self.local_obj).typeName
+        except AttributeError:
+            _type = type(self.local_obj).__name__
+        return {HANDLE: self.handle, TYPE: _type, ATTRS: self.attrs, REPR: repr(self.local_obj)}
 
     def __str__(self):
         return "BridgeHandle({}: {})".format(self.handle, self.local_obj)
