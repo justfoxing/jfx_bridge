@@ -72,6 +72,7 @@ BRIDGED = "bridged"
 EXCEPTION = "exception"
 OBJ = "obj"
 CALLABLE_OBJ = "callable_obj"
+TYPE_OBJ = "type_obj"
 BASES = "bases"
 REPR = "repr"
 
@@ -367,7 +368,21 @@ class BridgeHandle(object):
             _type = type(self.local_obj).typeName
         except AttributeError:
             _type = type(self.local_obj).__name__
-        return {HANDLE: self.handle, TYPE: _type, ATTRS: self.attrs, REPR: repr(self.local_obj)}
+
+        if hasattr(self.local_obj, "typeName"):
+            _name = self.local_obj.typeName
+        elif hasattr(self.local_obj, "__name__"):
+            _name = self.local_obj.__name__
+
+        else:
+            _name = None
+
+        return {HANDLE: self.handle,
+                TYPE: _type,
+                ATTRS: self.attrs,
+                REPR: repr(self.local_obj),
+                NAME: _name,
+                }
 
     def __str__(self):
         return "BridgeHandle({}: {})".format(self.handle, self.local_obj)
@@ -524,6 +539,9 @@ class BridgeConn(object):
             serialized_dict = {TYPE: BRIDGED, VALUE: data._bridge_handle}
         elif isinstance(data, type(None)):
             serialized_dict = {TYPE: NONE}
+        elif hasattr(data, "typeName"):
+            serialized_dict = {TYPE: TYPE_OBJ,
+                               VALUE: self.create_handle(data).to_dict()}
         else:
             # it's an object. assign a reference
             obj_type = CALLABLE_OBJ if callable(data) else OBJ
@@ -562,6 +580,9 @@ class BridgeConn(object):
             return self.get_object_by_handle(serial_dict[VALUE])
         elif serial_dict[TYPE] == NONE:
             return None
+        elif serial_dict[TYPE] == TYPE_OBJ:
+            return BridgedType(self, serial_dict[VALUE])
+
         elif serial_dict[TYPE] == OBJ or serial_dict[TYPE] == CALLABLE_OBJ:
             if serial_dict[TYPE] == CALLABLE_OBJ:
                 # note: assumes we're not going to get something that's iterable and callable at the same time (except types or Jython classes... which aren't actually iterable, they may just have __iter__)
@@ -1323,4 +1344,7 @@ class BridgedIterator(BridgedObject):
 
 class BridgedIterableIterator(BridgedIterator, BridgedIterable):
     """ Common enough that iterables return themselves from __iter__ """
+    pass
+
+class BridgedType(BridgedCallable):
     pass
