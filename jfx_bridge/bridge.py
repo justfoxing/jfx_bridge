@@ -1018,7 +1018,15 @@ class BridgeClient(object):
         return self.client.remote_eval(eval_string, timeout_override=timeout_override, **kwargs)
 
     def register_overrides(self, overrides):
+        """
+        Register overrides for the connection used by this client.
+        Be careful with this, because buggy overrides can result in confusing issues.
+
+        :param overrides: Dictionary: str -> ( BridgedObject -> Any)
+        :type overrides: Dict[str, Callable[[BridgedObject], Any]]
+        """
         self.client.register_overrides(overrides)
+
     def remote_shutdown(self):
         return self.client.remote_shutdown()
 
