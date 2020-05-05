@@ -452,6 +452,16 @@ class BridgeConn(object):
         self.response_mgr = BridgeResponseManager()
         self.response_timeout = response_timeout
 
+        # This dictionary allows to override all attributes except `_bridge` prefixed ones to be overriden
+        # This is reevaluated each access, not once like _bridge_overrides.
+        # The idea is that external tools can register these, to provide extra functionality like faking __doc__ strings
+        #
+        # Keys:
+        # the attribute like "__doc__" as a string
+        # Values:
+        # A callable that takes a BridgedObject as its argument and returns the overridden attribute value
+        self.external_overrides = {}
+
     def __del__(self):
         """ On teardown, make sure we close our socket to the remote bridge """
         with self.comms_lock:
@@ -916,6 +926,8 @@ class BridgeConn(object):
         self.logger.debug("Responding with {}".format(response_dict))
         return json.dumps(response_dict).encode("utf-8")
 
+    def register_overrides(self, overrides):
+        self.external_overrides.update(overrides)
 
 class BridgeServer(threading.Thread):
     """ Python2Python RPC bridge server 
@@ -1005,6 +1017,8 @@ class BridgeClient(object):
         """
         return self.client.remote_eval(eval_string, timeout_override=timeout_override, **kwargs)
 
+    def register_overrides(self, overrides):
+        self.client.register_overrides(overrides)
     def remote_shutdown(self):
         return self.client.remote_shutdown()
 
@@ -1116,6 +1130,13 @@ class BridgedClassMethod(object):
         return functools.partial(remote_method, instance)
 
 
+class ConcedeOverride(BaseException):
+    """Exception for an override to signal that it concedes and wants the bridge to handle it regularly
+    BaseException instead of Exception because this is a control flow signal and not an true exception
+    """
+    pass
+
+
 class BridgedObject(object):
     """ An object you can only interact with on the opposite side of a bridge """
     _bridge_conn = None
@@ -1157,7 +1178,21 @@ class BridgedObject(object):
         self._bridge_overrides = dict()
 
     def __getattribute__(self, attr):
-        if attr.startswith(BRIDGE_PREFIX) or attr == "__class__" or attr in BridgedObject._DONT_BRIDGE or attr in BridgedObject._LOCAL_METHODS or (attr in BridgedObject._DONT_BRIDGE_UNLESS_IN_ATTRS and attr not in self._bridge_attrs):
+
+        if attr.startswith(BRIDGE_PREFIX):
+            return object.__getattribute__(self, attr)
+
+        try:
+            # Try calling a registered override
+            return self._bridge_conn.external_overrides[attr](self)
+        except ConcedeOverride:
+            # The override signalled that it does not want to override this case
+            pass
+        except KeyError:
+            # There was no override for this attribute
+            pass
+
+        if attr == "__class__" or attr in BridgedObject._DONT_BRIDGE or attr in BridgedObject._LOCAL_METHODS or (attr in BridgedObject._DONT_BRIDGE_UNLESS_IN_ATTRS and attr not in self._bridge_attrs):
             # we don't want to bridge this for one reason or another (including it may not exist on the other end),
             # so get the local version, or accept the AttributeError that we'll get if it's not present locally.
             result = object.__getattribute__(self, attr)
@@ -1317,4 +1352,7 @@ class BridgedIterator(BridgedObject):
 
 class BridgedIterableIterator(BridgedIterator, BridgedIterable):
     """ Common enough that iterables return themselves from __iter__ """
+    pass
+
+class BridgedType(BridgedCallable):
     pass
