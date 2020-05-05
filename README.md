@@ -40,6 +40,16 @@ mnemonics = b.bridge.remote_eval("[ i.getMnemonicString() for i in currentProgra
 ```
 As a simplification, note also that the evaluation context has the same globals loaded into the \_\_main\_\_ of the script that started the server.
 
+Overrides
+=====================
+
+The BridgeClient exposes the `register_overrides` API to allow external tools to change the handling of certain attributes, but instead calling the registered override.
+The override calculates the result based on the object on which the attribute was accessed and the bridge returns this result instead.
+This allows an external tool to fake attributes that might be necessary for some functionality, that in reality do not exist on the real object.
+
+One example for this is [fmagin/ipyghidra](https://github.com/fmagin/ipyghidra)
+which creates useful values for inspect attributes like `__doc__`, `__module__`, `__signature__` based on the Ghidra documentation to populate the IPython help and aid with auto completion.
+
 How it works
 =====================
 bridge.py contains a py2/3 compatible python object RPC proxy. One python environment sets up a server on a port, which clients connect to. The bridge provides a handful of commands to carry out remote operations against python objects in the other environment.
