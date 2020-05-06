@@ -81,6 +81,7 @@ ID = "ID"
 ARGS = "args"
 GET = "get"
 GET_ALL = "get_all"
+GET_BATCH = "get_batch"
 CREATE_TYPE = "create_type"
 SET = "set"
 ISINSTANCE = "isinstance"
@@ -863,6 +864,23 @@ class BridgeConn(object):
 
         return self.serialize_to_dict(result)
 
+    def remote_get_batch(self, handle, attrs):
+        self.logger.debug("remote_get_batch {}".format(attrs))
+
+        command_dict = {CMD: GET_BATCH, ARGS:
+            {HANDLE: handle, ATTRS: attrs}}
+        result = self.send_cmd(command_dict)
+        return self.deserialize_from_dict(result)
+
+    def local_get_batch(self, args_dict):
+        handle = args_dict[HANDLE]
+        self.logger.debug("local_get_batch {}".format(handle))
+
+        target_obj = self.get_object_by_handle(handle)
+        result = {name: getattr(target_obj, name) for name in args_dict[ATTRS]}
+
+        return self.serialize_to_dict(result)
+
     def remote_shutdown(self):
         self.logger.debug("remote_shutdown")
         result = self.deserialize_from_dict(self.send_cmd({CMD: SHUTDOWN}))
@@ -906,6 +924,8 @@ class BridgeConn(object):
             response_dict[RESULT] = self.local_create_type(command_dict[ARGS])
         elif command_dict[CMD] == GET_ALL:
             response_dict[RESULT] = self.local_get_all(command_dict[ARGS])
+        elif command_dict[CMD] == GET_BATCH:
+            response_dict[RESULT] = self.local_get_batch(command_dict[ARGS])
         elif command_dict[CMD] == ISINSTANCE:
             response_dict[RESULT] = self.local_isinstance(command_dict[ARGS])
         elif command_dict[CMD] == EVAL:
@@ -1197,6 +1217,15 @@ class BridgedObject(object):
         # the result is a dictionary of attributes and their bridged objects. set them as overrides in the bridged object
         for name, value in attrs_dict.items():
             self._bridge_set_override(name, value)
+
+    def _bridged_get_batch(self, attrs, set_override=False):
+        attrs_dict = self._bridge_conn.remote_get_batch(self._bridge_handle, attrs)
+
+        if set_override:
+            for name, value in attrs_dict.items():
+                self._bridge_set_override(name, value)
+
+        return attrs_dict
 
     def _bridged_set(self, name, value):
         if name in self._bridge_overrides:
