@@ -42,6 +42,12 @@ except ImportError:
     # Nope, just normal python here
     EXCEPTION_TYPES = (Exception,)
 
+ENUM_TYPE = ()
+try:
+    from enum import Enum
+    ENUM_TYPE = (Enum,)
+except ImportError: # py2 has no enum
+    pass
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     # prevent server threads hanging around and stopping python from closing
@@ -487,8 +493,8 @@ class BridgeConn(object):
         # note: this needs to come before int, because apparently bools are instances of int (but not vice versa)
         if isinstance(data, bool):
             serialized_dict = {TYPE: BOOL, VALUE: str(data)}
-        elif isinstance(data, INTEGER_TYPES):
-            serialized_dict = {TYPE: INT, VALUE: str(data)}
+        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE): # don't treat py3 enums as ints - pass them as objects
+            serialized_dict = {TYPE: INT, VALUE: str(data)} 
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
         elif isinstance(data, STRING_TYPES):  # all strings are coerced to unicode

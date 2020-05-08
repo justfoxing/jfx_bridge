@@ -50,7 +50,6 @@ class TestBridge(unittest.TestCase):
     def test_call_multi_args(self):
         mod = TestBridge.test_bridge.remote_import("re")
 
-        # TODO - known issue with server in python3 - enums aren't handled correctly
         remote_obj = mod.compile("foo", mod.IGNORECASE)
 
         self.assertTrue(remote_obj is not None)
