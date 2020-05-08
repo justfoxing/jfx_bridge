@@ -8,6 +8,7 @@ import unittest
 import uuid
 import time
 import sys
+import os
 
 from . import bridge
 
@@ -19,8 +20,9 @@ class TestBridge(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         TestBridge.test_bridge = bridge.BridgeClient(
-            connect_to_port=bridge.DEFAULT_SERVER_PORT, loglevel=logging.DEBUG)
+            connect_to_port=port, loglevel=logging.DEBUG)
 
     def test_import(self):
 
