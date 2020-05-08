@@ -1,10 +1,10 @@
 # Run a test jfx_bridge server for external python environments to interact with
 # @author justfoxing
-# @category Bridge
 
 import logging
 import subprocess
 import sys
+import os
 from jfx_bridge import bridge
 
 def run_server(server_host=bridge.DEFAULT_HOST, server_port=bridge.DEFAULT_SERVER_PORT, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT):
@@ -56,4 +56,5 @@ def run_script_across_jfx_bridge(script_file, python="python", argstring=""):
         server.bridge.shutdown()
 
 if __name__ == "__main__":
-    run_server(response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)
+    port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+    run_server(server_port=port, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)

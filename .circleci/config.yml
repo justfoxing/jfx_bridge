@@ -45,16 +45,50 @@ jobs:
           name: Setup python2 and test environment
           command: |
             apt-get update || apt-get update 
-            apt-get install -y python2.7 python3-pip
+            apt-get install -y python2.7 python3-pip python-pip
             pip3 install nose
+            python2.7 -m pip install nose
+            mkdir test-reports
 
       - run:
-          name: Spawn bridge server and run tests
+          name: Spawn bridge server and run tests (3->2 server)
           command: |
-            python2.7 test_bridge_server.py >/tmp/script.log 2>/tmp/script.err & # Run the test jfx_bridge server
-            ( tail -f /tmp/script.err & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            mkdir test-reports
-            nosetests --with-xunit --xunit-file=test-reports/nosetests.xml
+            export TEST_PORT=3322
+            export ERR_LOG=/tmp/script32.err
+            touch $ERR_LOG
+            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python3 -m nose --with-xunit --xunit-file=test-reports/nosetests-3to2.xml
+            
+      - run:
+          name: Spawn bridge server and run tests (2->2 server)
+          command: |
+            export TEST_PORT=2222
+            export ERR_LOG=/tmp/script22.err
+            touch $ERR_LOG
+            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python2.7 -m nose --with-xunit --xunit-file=test-reports/nosetests-2to2.xml
+
+      - run:
+          name: Spawn bridge server and run tests (2->3 server)
+          command: |
+            export TEST_PORT=2233
+            export ERR_LOG=/tmp/script23.err
+            touch $ERR_LOG
+            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python2.7 -m nose --with-xunit --xunit-file=test-reports/nosetests-2to3.xml
+
+      - run:
+          name: Spawn bridge server and run tests (3->3 server)
+          command: |
+            export TEST_PORT=3333
+            export ERR_LOG=/tmp/script33.err
+            touch $ERR_LOG
+            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python3 -m nose --with-xunit --xunit-file=test-reports/nosetests-3to3.xml              
 
       - store_test_results:
           path: test-reports

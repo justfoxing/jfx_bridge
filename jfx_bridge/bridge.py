@@ -42,6 +42,12 @@ except ImportError:
     # Nope, just normal python here
     EXCEPTION_TYPES = (Exception,)
 
+ENUM_TYPE = ()
+try:
+    from enum import Enum
+    ENUM_TYPE = (Enum,)
+except ImportError: # py2 has no enum
+    pass
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     # prevent server threads hanging around and stopping python from closing
@@ -487,8 +493,8 @@ class BridgeConn(object):
         # note: this needs to come before int, because apparently bools are instances of int (but not vice versa)
         if isinstance(data, bool):
             serialized_dict = {TYPE: BOOL, VALUE: str(data)}
-        elif isinstance(data, INTEGER_TYPES):
-            serialized_dict = {TYPE: INT, VALUE: str(data)}
+        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE): # don't treat py3 enums as ints - pass them as objects
+            serialized_dict = {TYPE: INT, VALUE: str(data)} 
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
         elif isinstance(data, STRING_TYPES):  # all strings are coerced to unicode
@@ -1127,7 +1133,7 @@ class BridgedObject(object):
 
     # list of methods which we don't bridge, but need to have specific names (so we can't use the _bridge prefix for them)
     # TODO decorator to mark a function as local, don't bridge it - then have it automatically fill this out (also needs to work for subclasses)
-    _LOCAL_METHODS = ["__del__", "__str__", "__repr__", "__dir__", "getdoc"]
+    _LOCAL_METHODS = ["__del__", "__str__", "__repr__", "__dir__", "__bool__", "__nonzero__", "getdoc"]
 
     # list of attrs that we don't want to waste bridge calls on
     _DONT_BRIDGE = ["__mro_entries__",  # ignore mro entries - only being called if we're creating a class based off a bridged object
@@ -1243,6 +1249,11 @@ class BridgedObject(object):
     def __dir__(self):
         return dir(super(type(self))) + (self._bridge_attrs if self._bridge_attrs else [])
 
+    def __bool__(self):
+        # py3 vs 2 - __bool__ vs __nonzero__
+        return self._bridge_conn.remote_eval("bool(x)", x=self)
+
+    __nonzero__ = __bool__  # handle being run in a py2 environment
 
 # after BridgedObject is defined, update it to include handlers for common class methods
 for method_name in BRIDGED_CLASS_METHODS:
