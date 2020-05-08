@@ -36,14 +36,22 @@ class TestBridge(unittest.TestCase):
         self.assertTrue(result is not None)
 
     def test_call_arg(self):
-        # also tests call with bytestring arg
+        # also tests call with bytestring arg in python3
 
         mod = TestBridge.test_bridge.remote_import("base64")
 
         test_str = str(uuid.uuid4())
-        result = mod.b64encode(test_str.encode("utf-8")) # TODO this fails from python2 to python3 server
-
-        result_str = base64.b64decode(result).decode("utf-8")
+        
+        result_str = None
+        if sys.version[0] == "3":
+            result = mod.b64encode(test_str.encode("utf-8"))
+            result_str = base64.b64decode(result).decode("utf-8")
+        else:
+            # python2 can't send a byte string, and if the other end is python3, b64encode won't work on a string. 
+            # instead we'll try creating a uuid from the string
+            remote_uuid = TestBridge.test_bridge.remote_import("uuid")
+            new_uuid = remote_uuid.UUID(test_str)
+            result_str = str(new_uuid)
 
         self.assertEqual(test_str, result_str)
 
