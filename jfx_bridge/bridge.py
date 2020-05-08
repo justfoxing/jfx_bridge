@@ -1127,7 +1127,7 @@ class BridgedObject(object):
 
     # list of methods which we don't bridge, but need to have specific names (so we can't use the _bridge prefix for them)
     # TODO decorator to mark a function as local, don't bridge it - then have it automatically fill this out (also needs to work for subclasses)
-    _LOCAL_METHODS = ["__del__", "__str__", "__repr__", "__dir__", "getdoc"]
+    _LOCAL_METHODS = ["__del__", "__str__", "__repr__", "__dir__", "__bool__", "__nonzero__", "getdoc"]
 
     # list of attrs that we don't want to waste bridge calls on
     _DONT_BRIDGE = ["__mro_entries__",  # ignore mro entries - only being called if we're creating a class based off a bridged object
@@ -1243,6 +1243,11 @@ class BridgedObject(object):
     def __dir__(self):
         return dir(super(type(self))) + (self._bridge_attrs if self._bridge_attrs else [])
 
+    def __bool__(self):
+        # py3 vs 2 - __bool__ vs __nonzero__
+        return self._bridge_conn.remote_eval("bool(x)", x=self)
+
+    __nonzero__ = __bool__  # handle being run in a py2 environment
 
 # after BridgedObject is defined, update it to include handlers for common class methods
 for method_name in BRIDGED_CLASS_METHODS:
