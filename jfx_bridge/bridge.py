@@ -7,7 +7,6 @@ except Exception:
     import socketserver  # py3
 
 import logging
-import traceback
 import json
 import base64
 import uuid
@@ -118,10 +117,17 @@ GLOBAL_BRIDGE_SHUTDOWN = False
 
 
 class BridgeException(Exception):
+    """ An exception happened on the other side of the bridge and has been proxied back here
+        The bridge is fine, but the remote code you ran might have had an issue.
+    """
     pass
 
+class BridgeOperationException(Exception):
+    """ Some issue happened with the operation of the bridge itself. The bridge may not be in a good state """
+    pass
 
 class BridgeClosedException(Exception):
+    """ The bridge has closed """
     pass
 
 
@@ -182,8 +188,6 @@ class BridgeCommandHandlerThread(threading.Thread):
     bridge_conn = None
     threadpool = None
 
-    ERROR_RESULT = json.dumps({ERROR: True})
-
     def __init__(self, threadpool):
         super(BridgeCommandHandlerThread, self).__init__()
 
@@ -200,12 +204,14 @@ class BridgeCommandHandlerThread(threading.Thread):
             while cmd is not None:  # get_command returns none if we should shut down
                 # handle a command and write back the response
                 # TODO make this return an error tied to the cmd_id, so it goes in the response mgr
-                result = BridgeCommandHandlerThread.ERROR_RESULT
+                result = None
                 try:
                     result = self.bridge_conn.handle_command(cmd)
                 except Exception as e:
                     self.bridge_conn.logger.error(
                         "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
+                    # pack a minimal error, so the other end doesn't have to wait for a timeout
+                    result = json.dumps({VERSION: COMMS_VERSION_2, TYPE: ERROR, ID: cmd[ID],}).encode("utf-8")
 
                 try:
                     write_size_and_data_to_socket(
@@ -319,8 +325,8 @@ class BridgeReceiverThread(threading.Thread):
                     "Recv loop received {}".format(msg_dict))
 
                 if can_handle_version(msg_dict):
-                    if msg_dict[TYPE] == RESULT:
-                        # handle a response
+                    if msg_dict[TYPE] in [RESULT, ERROR]:
+                        # handle a response or error
                         self.bridge_conn.response_mgr.add_response(msg_dict)
                     else:
                         # queue this and hand off to a worker threadpool
@@ -333,7 +339,7 @@ class BridgeReceiverThread(threading.Thread):
                 # eat exceptions and continue, don't want a bad message killing the recv loop
                 self.bridge_conn.logger.exception(e)
 
-        self.bridge_conn.logger.debug("Reciever thread shutdown")
+        self.bridge_conn.logger.debug("Receiver thread shutdown")
 
 
 class BridgeCommandHandler(socketserver.BaseRequestHandler):
@@ -431,6 +437,11 @@ class BridgeResponseManager(object):
         except:
             raise Exception(
                 "Didn't receive response {} before timeout".format(response_id))
+                
+        if TYPE in data:
+            if data[TYPE] == ERROR:
+                # problem with the bridge itself, raise an exception
+                raise BridgeOperationException(data)
 
         with self.response_lock:
             # delete the entry, we're done here
@@ -495,7 +506,7 @@ class BridgeConn(object):
         if isinstance(data, bool):
             serialized_dict = {TYPE: BOOL, VALUE: str(data)}
         elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE): # don't treat py3 enums as ints - pass them as objects
-            serialized_dict = {TYPE: INT, VALUE: str(data)} 
+            serialized_dict = {TYPE: INT, VALUE: str(data)}
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
         elif isinstance(data, STRING_TYPES):  # all strings are coerced to unicode
