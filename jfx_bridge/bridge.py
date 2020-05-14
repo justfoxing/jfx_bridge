@@ -16,6 +16,7 @@ import importlib
 import socket
 import struct
 import time
+import traceback
 import weakref
 import functools
 import operator
@@ -204,7 +205,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     result = self.bridge_conn.handle_command(cmd)
                 except Exception as e:
                     self.bridge_conn.logger.error(
-                        "Unexpected exception for {}: {}".format(cmd, e))
+                        "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
 
                 try:
                     write_size_and_data_to_socket(
