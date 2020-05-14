@@ -46,8 +46,9 @@ ENUM_TYPE = ()
 try:
     from enum import Enum
     ENUM_TYPE = (Enum,)
-except ImportError: # py2 has no enum
+except ImportError:  # py2 has no enum
     pass
+
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     # prevent server threads hanging around and stopping python from closing
@@ -122,9 +123,11 @@ class BridgeException(Exception):
     """
     pass
 
+
 class BridgeOperationException(Exception):
     """ Some issue happened with the operation of the bridge itself. The bridge may not be in a good state """
     pass
+
 
 class BridgeClosedException(Exception):
     """ The bridge has closed """
@@ -211,7 +214,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     self.bridge_conn.logger.error(
                         "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
-                    result = json.dumps({VERSION: COMMS_VERSION_2, TYPE: ERROR, ID: cmd[ID],}).encode("utf-8")
+                    result = json.dumps({VERSION: COMMS_VERSION_2, TYPE: ERROR, ID: cmd[ID], }).encode("utf-8")
 
                 try:
                     write_size_and_data_to_socket(
@@ -437,7 +440,7 @@ class BridgeResponseManager(object):
         except:
             raise Exception(
                 "Didn't receive response {} before timeout".format(response_id))
-                
+
         if TYPE in data:
             if data[TYPE] == ERROR:
                 # problem with the bridge itself, raise an exception
@@ -505,7 +508,7 @@ class BridgeConn(object):
         # note: this needs to come before int, because apparently bools are instances of int (but not vice versa)
         if isinstance(data, bool):
             serialized_dict = {TYPE: BOOL, VALUE: str(data)}
-        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE): # don't treat py3 enums as ints - pass them as objects
+        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE):  # don't treat py3 enums as ints - pass them as objects
             serialized_dict = {TYPE: INT, VALUE: str(data)}
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
@@ -667,8 +670,17 @@ class BridgeConn(object):
         handle = args_dict[HANDLE]
         name = args_dict[NAME]
         value = self.deserialize_from_dict(args_dict[VALUE])
-        self.logger.debug(
-            "local_set: {}.{} = {}".format(handle, name, value))
+
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug("local_set: {}.{} = {}".format(handle, name, value))
+            except Exception as e:
+                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
+                self.logger.debug(
+                    "Falling back:\n\tlocal_set: {}.{} = {}".format(handle, name, args_dict[VALUE]))
 
         target = self.get_object_by_handle(handle)
         result = None
@@ -697,8 +709,18 @@ class BridgeConn(object):
         args = self.deserialize_from_dict(args_dict[ARGS])
         kwargs = self.deserialize_from_dict(args_dict[KWARGS])
 
-        self.logger.debug(
-            "local_call: {}({},{})".format(handle, args, kwargs))
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug(
+                    "local_call: {}({},{})".format(handle, args, kwargs))
+            except Exception as e:
+                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
+                self.logger.debug(
+                    "Falling back:\n\tlocal_call: {}({},{})".format(handle, args_dict[ARGS], args_dict[KWARGS]))
+
         result = None
         try:
             target_callable = self.get_object_by_handle(handle)
@@ -782,8 +804,17 @@ class BridgeConn(object):
         bases = self.deserialize_from_dict(args_dict[BASES])
         dct = self.deserialize_from_dict(args_dict[DICT])
 
-        self.logger.debug(
-            "local_create_type {}, {}, {}".format(name, bases, dct))
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug("local_create_type {}, {}, {}".format(name, bases, dct))
+            except Exception as e:
+                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
+                self.logger.debug(
+                    "Falling back:\n\tlocal_create_type {}, {}, {}".format(name, args_dict[BASES], args_dict[DICT]))
+
         result = None
 
         try:
@@ -835,8 +866,17 @@ class BridgeConn(object):
         test_object = args[OBJ]
         check_class_tuple = args[TUPLE]
 
-        self.logger.debug("local_isinstance({},{})".format(
-            test_object, check_class_tuple))
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug("local_isinstance({},{})".format(
+                    test_object, check_class_tuple))
+            except Exception as e:
+                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
+                self.logger.debug(
+                    "Falling back:\n\tlocal_isinstance({})".format(args_dict))
 
         # make sure every element is a local object on this side
         if _is_bridged_object(test_object):
@@ -868,8 +908,19 @@ class BridgeConn(object):
         args = self.deserialize_from_dict(args_dict)
 
         result = None
+
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug("local_eval({},{})".format(args[EXPR], args[KWARGS]))
+            except Exception as e:
+                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
+                self.logger.debug(
+                    "Falling back:\n\local_eval {}".format(args_dict))
+
         try:
-            self.logger.debug("local_eval({},{})".format(args[EXPR], args[KWARGS]))
             """ the import __main__ trick allows accessing all the variables that the bridge imports, 
             so evals will run within the global context of what started the bridge, and the arguments 
             supplied as kwargs will override that """
@@ -1266,6 +1317,7 @@ class BridgedObject(object):
         return self._bridge_conn.remote_eval("bool(x)", x=self)
 
     __nonzero__ = __bool__  # handle being run in a py2 environment
+
 
 # after BridgedObject is defined, update it to include handlers for common class methods
 for method_name in BRIDGED_CLASS_METHODS:
