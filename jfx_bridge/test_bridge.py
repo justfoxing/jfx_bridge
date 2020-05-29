@@ -366,6 +366,18 @@ class TestBridge(unittest.TestCase):
         t = x(2)
         self.assertTrue(TestBridge.test_bridge.remote_eval("bool(t)", t=t))
         
+    def test_bytes(self):
+        """ Test that we handle calling bytes() on a bridged object """
+        remote_collections = TestBridge.test_bridge.remote_import("collections")
+        dq = remote_collections.deque()
+        dq.append(1)
+        
+        if sys.version_info[0] == 2:
+            # bytes() == str() in py 2
+            self.assertEquals(bytes(dq), "deque([1])")
+        else:
+            self.assertEquals(bytes(dq), b"\x01")
+        
     def test_zzzzzz_shutdown(self):
         # test shutdown last
         result = TestBridge.test_bridge.remote_shutdown()
