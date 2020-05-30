@@ -8,7 +8,7 @@ The aim is to be as transparent as possible, so once you're set up, you shouldn'
 
 How to use
 ======================
-You might actually want one of the packages that uses jfx_bridge, such as [GhidraBridge](https://github.com/justfoxing/ghidra_bridge).
+You might actually want one of the packages that uses jfx_bridge, such as [GhidraBridge](https://github.com/justfoxing/ghidra_bridge), [IDABridge](https://github.com/justfoxing/jfx_bridge_ida), or [JEBBridge](https://github.com/justfoxing/jfx_bridge_jeb).
 
 Security warning
 =====================
@@ -57,7 +57,7 @@ Finally, there's a few other miscellaneous features to make life easier - bridge
 Design principles
 =====================
 * Needs to be run in Jython 2.7 and Python 3
-* Needs to be easy to install in constrained tools - no pip install, just add a single directory 
+* Needs to be easy to install in constrained environments - no pip install, just add a single directory 
 (these two requirements ruled out some of the more mature Python RPC projects I looked into)
 
 Tested
