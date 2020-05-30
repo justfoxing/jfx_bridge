@@ -13,7 +13,8 @@ import os
 from . import bridge
 
 if sys.version_info[0] == 2:
-    from socket import error as ConnectionRefusedError # ConnectionRefusedError not defined in python2, this is next closest thing
+    from socket import error as ConnectionRefusedError  # ConnectionRefusedError not defined in python2, this is next closest thing
+
 
 class TestBridge(unittest.TestCase):
     """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT """
@@ -43,13 +44,13 @@ class TestBridge(unittest.TestCase):
         mod = TestBridge.test_bridge.remote_import("base64")
 
         test_str = str(uuid.uuid4())
-        
+
         result_str = None
         if sys.version[0] == "3":
             result = mod.b64encode(test_str.encode("utf-8"))
             result_str = base64.b64decode(result).decode("utf-8")
         else:
-            # python2 can't send a byte string, and if the other end is python3, b64encode won't work on a string. 
+            # python2 can't send a byte string, and if the other end is python3, b64encode won't work on a string.
             # instead we'll try creating a uuid from the string
             remote_uuid = TestBridge.test_bridge.remote_import("uuid")
             new_uuid = remote_uuid.UUID(test_str)
@@ -292,8 +293,7 @@ class TestBridge(unittest.TestCase):
         remote_uuid = TestBridge.test_bridge.remote_import("uuid")
         remote_obj = remote_uuid.uuid4()
 
-        self.assertEquals(str(remote_obj._bridged_get_type()),
-                          "<class 'uuid.UUID'>")
+        self.assertTrue("<class 'uuid.UUID'>" in str(remote_obj._bridged_get_type()))
         self.assertTrue("'type'" in str(remote_obj._bridged_get_type()._bridged_get_type()))
 
     def test_remote_eval(self):
@@ -343,29 +343,42 @@ class TestBridge(unittest.TestCase):
         dq.append(2)
         dq.append(3)
         self.assertEquals(3, len(dq))
-        
+
     def test_bool(self):
         """ check we handle truthiness """
         remote_collections = TestBridge.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
         self.assertFalse(bool(dq))
-        
+
         dq.append(1)
         self.assertTrue(bool(dq))
-        
+
         # check we handle custom truthiness
         class x:
             def __init__(self, y):
                 self.y = y
+
             def __bool__(self):
                 return self.y == 2
             __nonzero__ = __bool__
-        
+
         f = x(3)
         self.assertFalse(TestBridge.test_bridge.remote_eval("bool(f)", f=f))
         t = x(2)
         self.assertTrue(TestBridge.test_bridge.remote_eval("bool(t)", t=t))
-        
+
+    def test_bytes(self):
+        """ Test that we handle calling bytes() on a bridged object """
+        remote_collections = TestBridge.test_bridge.remote_import("collections")
+        dq = remote_collections.deque()
+        dq.append(1)
+
+        if sys.version_info[0] == 2:
+            # bytes() == str() in py 2
+            self.assertEquals(bytes(dq), "deque([1])")
+        else:
+            self.assertEquals(bytes(dq), b"\x01")
+
     def test_zzzzzz_shutdown(self):
         # test shutdown last
         result = TestBridge.test_bridge.remote_shutdown()
@@ -380,4 +393,3 @@ class TestBridge(unittest.TestCase):
                 connect_to_port=bridge.DEFAULT_SERVER_PORT, loglevel=logging.DEBUG)
 
             fail_bridge.remote_import("datetime")
-  
