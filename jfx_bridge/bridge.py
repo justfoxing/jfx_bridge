@@ -493,7 +493,7 @@ class BridgeConn(object):
 
         self.response_mgr = BridgeResponseManager()
         self.response_timeout = response_timeout
-
+ 
         # keep a cache of types of objects we've created
         # we'll keep all the types forever (including handles to bridgedcallables in them) because types are super-likely
         # to be reused regularly, and we don't want to keep deleting them and then having to recreate them all the time.
@@ -673,7 +673,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_set(self, handle, name, value):
         self.logger.debug(
@@ -706,7 +706,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_call(self, handle, *args, **kwargs):
         self.logger.debug(
@@ -752,8 +752,7 @@ class BridgeConn(object):
             elif not isinstance(e, StopIteration):
                 traceback.print_exc()
 
-        response = self.serialize_to_dict(result)
-        return response
+        return result
 
     def remote_del(self, handle):
         self.logger.debug("remote_del {}".format(handle))
@@ -786,7 +785,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_get_type(self, handle):
         self.logger.debug(
@@ -806,7 +805,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_create_type(self, name, bases, dct):
         self.logger.debug(
@@ -839,7 +838,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_get_all(self, handle):
         self.logger.debug("remote_get_all {}".format(handle))
@@ -853,7 +852,7 @@ class BridgeConn(object):
         target_obj = self.get_object_by_handle(handle)
         result = {name: getattr(target_obj, name) for name in dir(target_obj)}
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_isinstance(self, test_object, class_or_tuple):
         self.logger.debug("remote_isinstance({}, {})".format(
@@ -904,9 +903,7 @@ class BridgeConn(object):
                 raise Exception(
                     "Can't use local_isinstance on a bridged class: {}".format(clazz))
 
-        result = isinstance(test_object, check_class_tuple)
-
-        return self.serialize_to_dict(result)
+        return isinstance(test_object, check_class_tuple)
 
     def remote_eval(self, eval_string, timeout_override=None, **kwargs):
         self.logger.debug("remote_eval({}, {})".format(eval_string, kwargs))
@@ -946,7 +943,7 @@ class BridgeConn(object):
             result = e
             traceback.print_exc()
 
-        return self.serialize_to_dict(result)
+        return result
 
     def remote_shutdown(self):
         self.logger.debug("remote_shutdown")
@@ -965,7 +962,7 @@ class BridgeConn(object):
 
         GLOBAL_BRIDGE_SHUTDOWN = True
 
-        return self.serialize_to_dict({SHUTDOWN: True})
+        return {SHUTDOWN: True}
 
     def handle_command(self, message_dict):
         response_dict = {VERSION: COMMS_VERSION_3,
@@ -974,29 +971,33 @@ class BridgeConn(object):
                          RESULT: {}}
 
         command_dict = message_dict[CMD]
-
-        if command_dict[CMD] == GET:
-            response_dict[RESULT] = self.local_get(command_dict[ARGS])
-        elif command_dict[CMD] == SET:
-            response_dict[RESULT] = self.local_set(command_dict[ARGS])
-        elif command_dict[CMD] == CALL:
-            response_dict[RESULT] = self.local_call(command_dict[ARGS])
-        elif command_dict[CMD] == DEL:
-            self.local_del(command_dict[ARGS])
-        elif command_dict[CMD] == IMPORT:
-            response_dict[RESULT] = self.local_import(command_dict[ARGS])
-        elif command_dict[CMD] == TYPE:
-            response_dict[RESULT] = self.local_get_type(command_dict[ARGS])
-        elif command_dict[CMD] == CREATE_TYPE:
-            response_dict[RESULT] = self.local_create_type(command_dict[ARGS])
-        elif command_dict[CMD] == GET_ALL:
-            response_dict[RESULT] = self.local_get_all(command_dict[ARGS])
-        elif command_dict[CMD] == ISINSTANCE:
-            response_dict[RESULT] = self.local_isinstance(command_dict[ARGS])
-        elif command_dict[CMD] == EVAL:
-            response_dict[RESULT] = self.local_eval(command_dict[ARGS])
-        elif command_dict[CMD] == SHUTDOWN:
-            response_dict[RESULT] = self.local_shutdown()
+       
+        if command_dict[CMD] == DEL:
+            self.local_del(command_dict[ARGS]) # no result required
+        else:
+            result = None
+            if command_dict[CMD] == GET:
+                result = self.local_get(command_dict[ARGS])
+            elif command_dict[CMD] == SET:
+                result = self.local_set(command_dict[ARGS])
+            elif command_dict[CMD] == CALL:
+                result = self.local_call(command_dict[ARGS])
+            elif command_dict[CMD] == IMPORT:
+                result = self.local_import(command_dict[ARGS])
+            elif command_dict[CMD] == TYPE:
+                result = self.local_get_type(command_dict[ARGS])
+            elif command_dict[CMD] == CREATE_TYPE:
+                result = self.local_create_type(command_dict[ARGS])
+            elif command_dict[CMD] == GET_ALL:
+                result = self.local_get_all(command_dict[ARGS])
+            elif command_dict[CMD] == ISINSTANCE:
+                result = self.local_isinstance(command_dict[ARGS])
+            elif command_dict[CMD] == EVAL:
+                result = self.local_eval(command_dict[ARGS])
+            elif command_dict[CMD] == SHUTDOWN:
+                result = self.local_shutdown()
+            
+            response_dict[RESULT] = self.serialize_to_dict(result)
 
         self.logger.debug("Responding with {}".format(response_dict))
         return json.dumps(response_dict).encode("utf-8")
