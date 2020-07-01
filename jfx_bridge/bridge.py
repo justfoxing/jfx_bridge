@@ -14,11 +14,14 @@ import threading
 import importlib
 import socket
 import struct
+import sys
 import time
 import traceback
 import weakref
 import functools
 import operator
+
+__version__ = "0.0.0" # automatically patched by setup.py when packaging
 
 # from six.py's strategy
 INTEGER_TYPES = None
@@ -1090,7 +1093,7 @@ class BridgeServer(threading.Thread):
         return self.server.socket.getsockname()
 
     def run(self):
-        self.logger.info("serving!")
+        self.logger.info("serving! (jfx_bridge v{}, Python {}.{}.{})".format(__version__, sys.version_info.major, sys.version_info.minor, sys.version_info.micro))
         self.is_serving = True
         self.server.serve_forever()
         self.logger.info("stopped serving")
