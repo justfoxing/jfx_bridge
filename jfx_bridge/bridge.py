@@ -1069,6 +1069,8 @@ class BridgeServer(threading.Thread):
             loglevel - what messages to log
             response_timeout - how long to wait for a response before throwing an exception, in seconds
         """
+        global GLOBAL_BRIDGE_SHUTDOWN
+        
         super(BridgeServer, self).__init__()
 
         # init the server
@@ -1087,6 +1089,9 @@ class BridgeServer(threading.Thread):
 
         self.logger.setLevel(loglevel)
         self.response_timeout = response_timeout
+        
+        # if we're starting the server, we need to make sure the flag is set to false
+        GLOBAL_BRIDGE_SHUTDOWN = False
 
     def get_server_info(self):
         """ return where the server is serving on """
