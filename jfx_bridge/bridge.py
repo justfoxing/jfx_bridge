@@ -423,6 +423,12 @@ class BridgeResponse(object):
 
     def get(self, timeout=None):
         """ wait for the response """
+        if timeout is not None and timeout < 0:
+            # can't pass in None higher up reliably, as it gets used to indicate "default timeout". 
+            # Instead, treat a negative timeout as "wait forever", and set timeout to None, so event.wait
+            # will wait forever.
+            timeout = None
+
         if not self.event.wait(timeout):
             raise Exception()
 
@@ -650,7 +656,7 @@ class BridgeConn(object):
             result = {}
             # wait for the response
             response_dict = self.response_mgr.get_response(
-                cmd_id, timeout=timeout_override if timeout_override else self.response_timeout)
+                cmd_id, timeout=timeout_override if timeout_override is not None else self.response_timeout)
 
             if response_dict is not None:
                 if RESULT in response_dict:

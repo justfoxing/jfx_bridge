@@ -40,6 +40,12 @@ mnemonics = b.bridge.remote_eval("[ i.getMnemonicString() for i in currentProgra
 ```
 As a simplification, note also that the evaluation context has the same globals loaded into the \_\_main\_\_ of the script that started the server.
 
+Long-running commands
+=====================
+If you have a particularly slow call in your script, it may hit the response timeout that the bridge uses to make sure the connection hasn't broken. If this happens, you'll see something like `Exception: Didn't receive response <UUID> before timeout`.
+
+There are two options to increase the timeout. When creating the bridge, you can set a timeout value in seconds with the response_timeout argument (e.g., `b = jfx_bridge.bridge.BridgeClient(response_timeout=20)`) which will apply to all commands run across the bridge. Alternatively, if you just want to change the timeout for one command, you can use remote_eval as mentioned above, with the timeout_override argument (e.g., `b.remote_eval("<long running eval>", timeout_override=20)`). If you use the value -1 for either of these arguments, the response timeout will be disabled and the bridge will wait forever for your response to come back - note that this can cause your script to hang if the bridge runs into problems.
+
 How it works
 =====================
 bridge.py contains a py2/3 compatible python object RPC proxy. One python environment sets up a server on a port, which clients connect to. The bridge provides a handful of commands to carry out remote operations against python objects in the other environment.
