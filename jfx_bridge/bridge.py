@@ -21,7 +21,7 @@ import weakref
 import functools
 import operator
 
-__version__ = "0.0.0" # automatically patched by setup.py when packaging
+__version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
 # from six.py's strategy
 INTEGER_TYPES = None
@@ -424,7 +424,7 @@ class BridgeResponse(object):
     def get(self, timeout=None):
         """ wait for the response """
         if timeout is not None and timeout < 0:
-            # can't pass in None higher up reliably, as it gets used to indicate "default timeout". 
+            # can't pass in None higher up reliably, as it gets used to indicate "default timeout".
             # Instead, treat a negative timeout as "wait forever", and set timeout to None, so event.wait
             # will wait forever.
             timeout = None
@@ -502,7 +502,7 @@ class BridgeConn(object):
 
         self.response_mgr = BridgeResponseManager()
         self.response_timeout = response_timeout
- 
+
         # keep a cache of types of objects we've created
         # we'll keep all the types forever (including handles to bridgedcallables in them) because types are super-likely
         # to be reused regularly, and we don't want to keep deleting them and then having to recreate them all the time.
@@ -980,9 +980,9 @@ class BridgeConn(object):
                          RESULT: {}}
 
         command_dict = message_dict[CMD]
-       
+
         if command_dict[CMD] == DEL:
-            self.local_del(command_dict[ARGS]) # no result required
+            self.local_del(command_dict[ARGS])  # no result required
         else:
             result = None
             if command_dict[CMD] == GET:
@@ -1005,7 +1005,7 @@ class BridgeConn(object):
                 result = self.local_eval(command_dict[ARGS])
             elif command_dict[CMD] == SHUTDOWN:
                 result = self.local_shutdown()
-            
+
             response_dict[RESULT] = self.serialize_to_dict(result)
 
         self.logger.debug("Responding with {}".format(response_dict))
@@ -1019,8 +1019,8 @@ class BridgeConn(object):
         # short circuit - any function-like thing, as well as any type (or java.lang.Class) becomes a BridgedCallable (need to invoke types/classes, so they're callable)
         if type_name in ["type", "java.lang.Class", "function", "builtin_function_or_method", "instancemethod", "method_descriptor", "wrapper_descriptor"]:
             return BridgedCallable
-        elif type_name == "module":
-            return BridgedObject
+        elif type_name in ["module", "javapackage"]:
+            return BridgedModule
 
         # if we've already handled this type, use the old one
         if type_name in self.cached_bridge_types:
@@ -1076,7 +1076,7 @@ class BridgeServer(threading.Thread):
             response_timeout - how long to wait for a response before throwing an exception, in seconds
         """
         global GLOBAL_BRIDGE_SHUTDOWN
-        
+
         super(BridgeServer, self).__init__()
 
         # init the server
@@ -1095,7 +1095,7 @@ class BridgeServer(threading.Thread):
 
         self.logger.setLevel(loglevel)
         self.response_timeout = response_timeout
-        
+
         # if we're starting the server, we need to make sure the flag is set to false
         GLOBAL_BRIDGE_SHUTDOWN = False
 
@@ -1123,11 +1123,12 @@ class BridgeServer(threading.Thread):
 class BridgeClient(object):
     """ Python2Python RPC bridge client """
 
-    def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT):
+    def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False):
         """ Set up the bridge client
             connect_to_host/port - host/port to connect to run commands. 
-            loglevel - what messages to log
+            loglevel - what messages to log (e.g., logging.INFO, logging.DEBUG)
             response_timeout - how long to wait for a response before throwing an error, in seconds
+            hook_import - set to True to add a hook to the import system to allowing importing remote modules
         """
         logging.basicConfig()
         self.logger = logging.getLogger(__name__)
@@ -1138,6 +1139,15 @@ class BridgeClient(object):
 
         self.client = BridgeConn(
             self, sock=None, connect_to_host=connect_to_host, connect_to_port=connect_to_port, response_timeout=response_timeout)
+
+        if hook_import:
+            # TODO python 2 - this is trying to import all the things remotely. (no meta_paths, so it's capturing everything) TODO path hooks?
+            # add a finder to the end of sys.meta_path to catch modules that no others can and attempt to load them
+            # add a path_hook for this bridge
+            sys.path_hooks.append(BridgedModuleFinderLoader(self).path_hook_fn)
+            # add an entry for this bridge client's bridge connection to the paths
+            sys.path.append(repr(self.client))
+            # TODO make sure we remove the finder when the client is torn down?
 
     def remote_import(self, module_name):
         return self.client.remote_import(module_name)
@@ -1402,3 +1412,91 @@ class BridgedIterator(BridgedObject):
             raise
 
     next = __next__  # handle being run in a py2 environment
+
+
+class BridgedModule(BridgedObject):
+    """ Represent a remote module (or javapackage) to allow for doing normal imports """
+
+    def __init__(self, bridge_conn, obj_dict):
+        BridgedObject.__init__(self, bridge_conn, obj_dict)
+        # python3 needs __path__ set (to anything) to treat a module as a package for doing "from foo.bar import flam"
+        # we mark the __path__ as the bridge_conn to allow easier detection of the package as a bridged one we might be responsible for
+        # strictly speaking, only packages need __path__, but we set it for modules as well so that we don't get heaps of errors on the server
+        # side when the import machinery tries to get __path__ for them
+        self._bridge_set_override("__path__", [repr(bridge_conn)])
+        # allow a spec to be set. javapackages resist having attributes added, so we handle it here
+        self._bridge_set_override("__spec__", None)
+
+
+class BridgedModuleFinderLoader:
+    """ Add to sys.meta_path - returns itself if it can find a remote module to satisfy the import
+
+        Note: position in sys.meta_path is important - you almost certainly want to add it to the end. Adding it at the start
+        could have it say it can load everything, and imports of local modules will instead be filled with remote modules 
+    """
+
+    def __init__(self, bridge_client):
+        """ Record the bridge client to use for remote importing"""
+        self.bridge_client = bridge_client
+
+    def path_hook_fn(self, path):
+        """ Called when the import machinery runs over path_hooks - returns itself as a finder if its this bridge connection """
+        print(path)
+        if path == repr(self.bridge_client.client):
+            return self
+        # not us, don't play along
+        raise ImportError()
+
+    def find_module(self, fullname, path=None):
+        """ called by import machinery - fullname is the dotted module name to load. If the module is part of a package, __path__ is from 
+            the parent package
+        """
+        if path is not None:
+            if repr(self.bridge_client.client) in path:
+                # this is coming from a bridged package in our bridge
+                return self
+            # parent isn't bridged, or is bridged but isn't from our bridge - we can't do anything with this
+            return None
+
+        # package/module with no parent. See if it exists on the other side before we get excited
+        try:
+            self.bridge_client.remote_import(fullname)
+            # got something back, so yeah, we can fill it
+            return self
+        except BridgeException as be:
+            exception_type = be.args[1]._bridge_type
+            if exception_type.endswith("ModuleNotFoundError") or exception_type.endswith("ImportError"):
+                # ModuleNotFoundError in py3, just ImportError in py2
+                # module doesn't exist remotely, we can't help - return None
+                return None
+            else:
+                # something else went wrong with the bridge - reraise the exception so the user can deal with it
+                raise be
+
+    def load_module(self, fullname):
+        """ Called by import machinery - fullname is the dotted module name to load """
+        # if the module is already loaded, just give that back
+        if fullname in sys.modules:
+            return sys.modules[fullname]
+
+        # get the remote module
+        target = self.bridge_client.remote_import(fullname)
+
+        # split out the name so we know
+        components = fullname.rsplit(".", 1)
+        parent = components[0]
+        if len(components) > 1:
+            child = components[1]
+            # set the child as an override on the parent, so the importlib machinery can set it as an attribute without stuffing up - needed for javapackage
+            if parent in sys.modules:
+                sys.modules[parent]._bridge_set_override(child, None)
+
+        # set some import machinery fields
+        target._bridge_set_override("__loader__", self)
+        target._bridge_set_override("__package__", parent)
+
+        # add the module to sys.modules
+        sys.modules[fullname] = target
+
+        # hand back the module
+        return target

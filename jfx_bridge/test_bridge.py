@@ -379,6 +379,88 @@ class TestBridge(unittest.TestCase):
         else:
             self.assertEquals(bytes(dq), b"\x01")
 
+
+class TestBridgeHookImport(unittest.TestCase):
+    """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
+
+    @classmethod
+    def setUpClass(cls):
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+        TestBridge.test_bridge = bridge.BridgeClient(
+            connect_to_port=port, loglevel=logging.DEBUG, hook_import=True)
+
+    def test_hook_import_top_level(self):
+        """ Test that we handle import x syntax """
+        import test_hook_import_top_level
+        remote_name = str(test_hook_import_top_level)
+        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_top_level" in remote_name)
+
+    def test_hook_import_dotted(self):
+        """ Test that we handle import x.y syntax """
+        import test_hook_import_dotted.child
+        remote_name = str(test_hook_import_dotted.child)
+        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_dotted.child" in remote_name)
+
+    def test_hook_import_from_syntax(self):
+        """ Test that we handle from x import y syntax """
+        from test_hook_import_from import run_server
+        remote_name = str(run_server)
+        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
+
+    def test_hook_import_nonexistent(self):
+        """ Test that we handle a nonexistent import """
+        with self.assertRaises(ImportError):
+            import foobar
+
+    def test_hook_import_as(self):
+        """ Test that we don't break import x as y syntax """
+        import test_hook_import_as as thia
+        remote_name = str(thia)
+        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_as" in remote_name)
+
+    def test_hook_import_force_import(self):
+        """ Test that we actually import something that's not loaded"""
+        remote_sys = TestBridge.test_bridge.remote_import("sys")
+        remote_python_version = remote_sys.version_info[0]
+        local_python_version = sys.version_info[0]
+
+        if local_python_version == 2 and remote_python_version == 3:
+            # import a module in 3 that's not in 2
+            # make sure it's not already loaded remotely
+            self.assertTrue("http" not in remote_sys.modules)
+            import http
+            remote_name = str(http)
+            self.assertTrue("BridgedModule" in remote_name and "http" in remote_name)
+
+        elif local_python_version == 3 and remote_python_version == 2:
+            # import a module in 2 that's not in 3
+            # make sure it's not already loaded remotely
+            self.assertTrue("SimpleHTTPServer" not in remote_sys.modules)
+            import SimpleHTTPServer
+            remote_name = str(SimpleHTTPServer)
+            self.assertTrue("BridgedModule" in remote_name and "SimpleHTTPServer" in remote_name)
+
+        else:
+            # same versions, can't think of anything useful to test load
+            self.skipTest("Test irrelevant for matched versions")
+
+    def test_local_import(self):
+        """ Make sure a local import is resolved locally, not pulled in remotely """
+        self.assertTrue("ast" not in sys.modules)
+        import ast
+        name = str(ast)
+        self.assertTrue("BridgedModule" not in name and "ast" in name)
+
+
+class TestBridgeZZZZZZZShutdown(unittest.TestCase):
+    """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT. Needs to run last, nothing will work after this"""
+
+    @classmethod
+    def setUpClass(cls):
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+        TestBridge.test_bridge = bridge.BridgeClient(
+            connect_to_port=port, loglevel=logging.DEBUG)
+
     def test_zzzzzz_shutdown(self):
         # test shutdown last
         result = TestBridge.test_bridge.remote_shutdown()
