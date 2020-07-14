@@ -10,8 +10,8 @@ Table of contents
 ======================
 * [How to use](#how-to-use)
 * [Security warning](#security-warning)
-* [Remote eval](#how-to-use)
-* [Long-running commands](#how-to-use)
+* [Remote eval](#remote-eval)
+* [Long-running commands](#long-running-commands)
 * [Remote imports](#remote-imports)
 * [How it works](#how-it-works)
 * [Design principles](#design-principles)
