@@ -52,6 +52,9 @@ try:
 except ImportError:  # py2 has no enum
     pass
 
+if sys.version_info[0] == 2:
+    from socket import error as ConnectionError  # ConnectionError not defined in python2, this is next closest thing
+
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     # prevent server threads hanging around and stopping python from closing
@@ -1141,11 +1144,10 @@ class BridgeClient(object):
             self, sock=None, connect_to_host=connect_to_host, connect_to_port=connect_to_port, response_timeout=response_timeout)
 
         if hook_import:
-            # TODO python 2 - this is trying to import all the things remotely. (no meta_paths, so it's capturing everything) TODO path hooks?
-            # add a finder to the end of sys.meta_path to catch modules that no others can and attempt to load them
             # add a path_hook for this bridge
             sys.path_hooks.append(BridgedModuleFinderLoader(self).path_hook_fn)
-            # add an entry for this bridge client's bridge connection to the paths
+            # add an entry for this bridge client's bridge connection to the paths.
+            # We add it at the end, so we only catch imports that no one else wants to handle
             sys.path.append(repr(self.client))
             # TODO make sure we remove the finder when the client is torn down?
 
