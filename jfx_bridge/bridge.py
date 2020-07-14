@@ -498,10 +498,13 @@ class BridgeConn(object):
         self.logger = bridge.logger
 
         self.handle_dict = {}
+        # list of tuples of (handle, time) that have been marked for deletion and the time they were marked at
+        # list will always be in order of earliest marked to latest
+        self.delay_delete_handles = []
 
         self.sock = sock
         self.comms_lock = threading.RLock()
-        self.handle_lock = threading.Lock()
+        self.handle_lock = threading.RLock()
 
         self.response_mgr = BridgeResponseManager()
         self.response_timeout = response_timeout
@@ -538,7 +541,30 @@ class BridgeConn(object):
     def release_handle(self, handle):
         with self.handle_lock:
             if handle in self.handle_dict:
+                # don't release the handle just yet - put it in the delay list
+                # this is because some remote_evals end up with objects being released remotely (causing
+                # a delete command to be sent) before they're sent back in a response. The delete command
+                # beats the response back, and the handle is removed before it can be used in the response
+                # causing an error.
+                # To avoid this, we'll delay for a response_timeout period to make sure that we got our
+                # response back post-delete.
+                self.delay_delete_handles.append((handle, time.time()))
+
+            # use this as a good time to purge delayed handles
+            self.purge_delay_delete_handles()
+
+    def purge_delay_delete_handles(self):
+        """ Actually remove deleted handles from the handle dict once they've exceeded the timeout """
+        with self.handle_lock:
+            # work out the cutoff time for when we'd delete delayed handles
+            delay_exceeded_time = time.time() - self.response_timeout
+            # run over delay_delete_handles until it's empty or the times are later than the delay_exceeded_time
+            while len(self.delay_delete_handles) > 0 and self.delay_delete_handles[0][1] <= delay_exceeded_time:
+                handle = self.delay_delete_handles[0][0]
+                # actually remove the handle
                 del self.handle_dict[handle]
+                # remove this entry from the list
+                self.delay_delete_handles.pop(0)
 
     def serialize_to_dict(self, data):
         serialized_dict = None
