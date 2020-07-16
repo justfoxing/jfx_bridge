@@ -1469,7 +1469,6 @@ class BridgedModuleFinderLoader:
 
     def path_hook_fn(self, path):
         """ Called when the import machinery runs over path_hooks - returns itself as a finder if its this bridge connection """
-        print(path)
         if path == repr(self.bridge_client.client):
             return self
         # not us, don't play along
