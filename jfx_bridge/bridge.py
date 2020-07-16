@@ -62,7 +62,7 @@ class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_SERVER_PORT = 4768  # "Gh"
+DEFAULT_SERVER_PORT = 27238  # 0x6a66 = "jf"
 
 VERSION = "v"
 MAX_VERSION = "max_v"
