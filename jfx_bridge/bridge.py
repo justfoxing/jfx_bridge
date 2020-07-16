@@ -1096,6 +1096,7 @@ class BridgeServer(threading.Thread):
 
         Like a thread, so call run() to run directly, or start() to run on a background thread
     """
+    is_serving = False
 
     def __init__(self, server_host=DEFAULT_HOST, server_port=0, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT):
         """ Set up the bridge.
@@ -1115,7 +1116,6 @@ class BridgeServer(threading.Thread):
         self.server.bridge = weakref.proxy(self)
         self.server.timeout = 1
         self.daemon = True
-        self.is_serving = False
 
         logging.basicConfig()
         self.logger = logging.getLogger(__name__)
