@@ -1521,6 +1521,11 @@ class BridgedModuleFinderLoader:
         # set some import machinery fields
         target._bridge_set_override("__loader__", self)
         target._bridge_set_override("__package__", parent)
+        # ensure we have an override set on __spec__ for everything, including non-modules (e.g., BridgedCallables on java classes)
+        # otherwise, __spec__ gets set by import machinery later, leading to a client handle being pushed into the server, where other
+        # clients might get it if they import the same module
+        # TODO probably need to check there's nothing else being set against the modules? Or is there a way to reload modules for each new client?
+        target._bridge_set_override("__spec__", None)
 
         # add the module to sys.modules
         sys.modules[fullname] = target

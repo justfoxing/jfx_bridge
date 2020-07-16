@@ -65,6 +65,8 @@ sys.modules["test_hook_import_dotted"] = types.ModuleType("test_hook_import_dott
 sys.modules["test_hook_import_dotted.child"] = types.ModuleType("test_hook_import_dotted.child")
 sys.modules["test_hook_import_dotted"].__path__ = ["fake"]
 sys.modules["test_hook_import_dotted"].child = sys.modules["test_hook_import_dotted.child"]
+# create a "module" that's not a module, to represent java classes in Jython (which are callables)
+sys.modules["test_hook_import_nonmodule"] = run_server
 
 if __name__ == "__main__":
     port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))

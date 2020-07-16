@@ -450,7 +450,46 @@ class TestBridgeHookImport(unittest.TestCase):
         import ast
         name = str(ast)
         self.assertTrue("BridgedModule" not in name and "ast" in name)
+        
+    def test_hook_import_nonmodule(self):
+        """ Test we can import nonmodules like modules (e.g., java classes from jython). But mostly so we can test 
+            reimporting
+        """
+        import test_hook_import_nonmodule
+        remote_name = str(test_hook_import_nonmodule)
+        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
 
+class TestBridgeHookImportReimport(unittest.TestCase):
+    """ 
+    Test the case of a separate client importing the same module as a previous client.
+    Because the modules are only imported once in the server, if the first client sets objects on the remote module
+    (e.g., __spec__), the second client will get old/unknown handle.
+    
+    Assumes there's a bridge server running at DEFAULT_SERVER_PORT.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+        old_importer_index = len(sys.path)-1
+        TestBridge.test_bridge = bridge.BridgeClient(
+            connect_to_port=port, loglevel=logging.DEBUG, hook_import=True)
+
+        # rearrange paths to make sure our importer gets called first
+        # TODO once we get around to implementing cleaning up import hooks on client shutdown, this shouldn't be required
+        new_importer = sys.path[-1]
+        old_importer = sys.path[old_importer_index]
+        sys.path[old_importer_index] = new_importer
+        sys.path[-1] = old_importer
+
+    def test_hook_import_nonmodule_again(self):
+        """ If this fails with old/unknown handle, __spec__ has been set by the old client """
+        # clear out our old import
+        del sys.modules["test_hook_import_nonmodule"]
+        
+        import test_hook_import_nonmodule
+        remote_name = str(test_hook_import_nonmodule)
+        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
 
 class TestBridgeZZZZZZZShutdown(unittest.TestCase):
     """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT. Needs to run last, nothing will work after this"""
