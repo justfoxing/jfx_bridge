@@ -54,6 +54,7 @@ except ImportError:  # py2 has no enum
 
 if sys.version_info[0] == 2:
     from socket import error as ConnectionError  # ConnectionError not defined in python2, this is next closest thing
+    from socket import error as ConnectionResetError  # as above
 
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -378,7 +379,7 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
             # only get here if the client has requested we shutdown the bridge
             self.server.bridge.logger.debug("Receiver thread exited - bridge shutdown requested")
             self.server.bridge.shutdown()
-        except BridgeClosedException:
+        except (BridgeClosedException, ConnectionResetError):
             pass  # expected - the client has closed the connection
         except Exception as e:
             # something weird went wrong?
