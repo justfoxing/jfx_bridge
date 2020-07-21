@@ -494,7 +494,7 @@ class BridgeConn(object):
         """ Set up the bridge connection - only instantiates a connection as needed """
         self.host = connect_to_host
         self.port = connect_to_port
-
+    
         # get a reference to the bridge's logger for the connection
         self.logger = bridge.logger
 
@@ -514,6 +514,10 @@ class BridgeConn(object):
         # we'll keep all the types forever (including handles to bridgedcallables in them) because types are super-likely
         # to be reused regularly, and we don't want to keep deleting them and then having to recreate them all the time.
         self.cached_bridge_types = dict()
+        
+        # if the bridge has requested a local_call_hook/local_eval_hook, record that
+        self.local_call_hook = bridge.local_call_hook
+        self.local_eval_hook = bridge.local_eval_hook
 
     def __del__(self):
         """ On teardown, make sure we close our socket to the remote bridge """
@@ -779,7 +783,11 @@ class BridgeConn(object):
         result = None
         try:
             target_callable = self.get_object_by_handle(handle)
-            result = target_callable(*args, **kwargs)
+            # call the target function, or the hook if we've registered one
+            if self.local_call_hook is None:
+                result = target_callable(*args, **kwargs)
+            else:
+                result = self.local_call_hook(self, target_callable, *args, **kwargs)
         except EXCEPTION_TYPES as e:
             result = e
             if not isinstance(e, Exception):
@@ -976,7 +984,14 @@ class BridgeConn(object):
             """ the import __main__ trick allows accessing all the variables that the bridge imports, 
             so evals will run within the global context of what started the bridge, and the arguments 
             supplied as kwargs will override that """
-            result = eval(args[EXPR], importlib.import_module('__main__').__dict__, args[KWARGS])
+            eval_expr = args[EXPR]
+            eval_globals = importlib.import_module('__main__').__dict__
+            eval_locals = args[KWARGS]
+            # do the eval, or defer to the hook if we've registered one
+            if self.local_eval_hook is None:
+                result = eval(eval_expr, eval_globals, eval_locals)
+            else:
+                result = self.local_eval_hook(self, eval_expr, eval_globals, eval_locals)
             self.logger.debug("local_eval: Finished evaluating")
         except Exception as e:
             result = e
@@ -1092,14 +1107,16 @@ class BridgeConn(object):
         return bridge_type(self, obj_dict)
 
 
-class BridgeServer(threading.Thread):
+class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClient share a class
     """ Python2Python RPC bridge server 
 
         Like a thread, so call run() to run directly, or start() to run on a background thread
     """
     is_serving = False
+    local_call_hook = None
+    local_eval_hook = None
 
-    def __init__(self, server_host=DEFAULT_HOST, server_port=0, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT):
+    def __init__(self, server_host=DEFAULT_HOST, server_port=0, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, local_call_hook=None, local_eval_hook=None):
         """ Set up the bridge.
 
             server_host/port: host/port to listen on to serve requests. If not specified, defaults to 127.0.0.1:0 (random port - use get_server_info() to find out where it's serving)
@@ -1128,6 +1145,12 @@ class BridgeServer(threading.Thread):
 
         # if we're starting the server, we need to make sure the flag is set to false
         GLOBAL_BRIDGE_SHUTDOWN = False
+        
+        # specify a callable to local_call_hook(bridge_conn, target_callable, *args, **kwargs) or
+        # local_eval_hook(bridge_conn, eval_expression, eval_globals_dict, eval_locals_dict) to
+        # hook local_call/local_eval to allow inspection/modification of calls/evals (e.g., forcing them onto a particular thread)
+        self.local_call_hook = local_call_hook
+        self.local_eval_hook = local_eval_hook
 
     def get_server_info(self):
         """ return where the server is serving on """
@@ -1150,8 +1173,11 @@ class BridgeServer(threading.Thread):
             self.server.server_close()
 
 
-class BridgeClient(object):
+class BridgeClient(object): # TODO make the external bridges inherit from this.
     """ Python2Python RPC bridge client """
+    
+    local_call_hook = None
+    local_eval_hook = None
 
     def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False):
         """ Set up the bridge client
