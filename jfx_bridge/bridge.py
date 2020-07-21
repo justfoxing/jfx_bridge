@@ -20,6 +20,7 @@ import traceback
 import weakref
 import functools
 import operator
+import warnings
 
 __version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
@@ -747,7 +748,7 @@ class BridgeConn(object):
             result = setattr(target, name, value)
         except Exception as e:
             result = e
-            traceback.print_exc()
+            traceback.print_exc() # TODO - this and other tracebacks, log with info about what's happening
 
         return result
 
@@ -1178,6 +1179,7 @@ class BridgeClient(object): # TODO make the external bridges inherit from this.
     
     local_call_hook = None
     local_eval_hook = None
+    _bridge = None
 
     def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False):
         """ Set up the bridge client
@@ -1203,6 +1205,17 @@ class BridgeClient(object): # TODO make the external bridges inherit from this.
             # We add it at the end, so we only catch imports that no one else wants to handle
             sys.path.append(repr(self.client))
             # TODO make sure we remove the finder when the client is torn down?
+        
+        self._bridge = self
+        
+    @property
+    def bridge(self):
+        """ for backwards compatibility with old examples using external_bridge.bridge.remote_import/etc,
+            before the external bridges just inherited from BridgeClient
+            Allow access, but warn about it
+        """
+        warnings.warn("Using <external_bridge>.bridge to get to remote_import/eval/shutdown is deprecated - just do <external_bridge>.remote_import/etc.", DeprecationWarning)
+        return self._bridge
 
     def remote_import(self, module_name):
         return self.client.remote_import(module_name)

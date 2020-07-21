@@ -33,13 +33,13 @@ By default, the jfx_bridge server only listens on localhost to slightly reduce t
 
 Remote eval
 =====================
-jfx_bridge is designed to be transparent, to allow easy porting of non-bridged scripts without too many changes. However, if you're happy to make changes, and you run into slowdowns caused by running lots of remote queries (e.g., something like `for remote_val in remote_iterable: doSomethingRemote()` can be quite slow with a large number of values as each one will result in a message across the bridge), you can make use of the bridge.remote_eval() function to ask for the result to be evaluated on the bridge server all at once, which will require only a single message roundtrip.
+jfx_bridge is designed to be transparent, to allow easy porting of non-bridged scripts without too many changes. However, if you're happy to make changes, and you run into slowdowns caused by running lots of remote queries (e.g., something like `for remote_val in remote_iterable: doSomethingRemote()` can be quite slow with a large number of values as each one will result in a message across the bridge), you can make use of the remote_eval() function to ask for the result to be evaluated on the bridge server all at once, which will require only a single message roundtrip.
 
 The following example demonstrates getting a list of all the names of all the functions in a binary:
 ```python
 import ghidra_bridge 
 b = ghidra_bridge.GhidraBridge(namespace=globals())
-name_list = b.bridge.remote_eval("[ f.getName() for f in currentProgram.getFunctionManager().getFunctions(True)]")
+name_list = b.remote_eval("[ f.getName() for f in currentProgram.getFunctionManager().getFunctions(True)]")
 ```
 
 If your evaluation is going to take some time, you might need to use the timeout_override argument to increase how long the bridge will wait before deciding things have gone wrong.
@@ -49,7 +49,7 @@ If you need to supply an argument for the remote evaluation, you can provide arb
 import ghidra_bridge 
 b = ghidra_bridge.GhidraBridge(namespace=globals())
 func = currentProgram.getFunctionManager().getFunctions(True).next()
-mnemonics = b.bridge.remote_eval("[ i.getMnemonicString() for i in currentProgram.getListing().getInstructions(f.getBody(), True)]", f=func)
+mnemonics = b.remote_eval("[ i.getMnemonicString() for i in currentProgram.getListing().getInstructions(f.getBody(), True)]", f=func)
 ```
 As a simplification, note also that the evaluation context has the same globals loaded into the \_\_main\_\_ of the script that started the server.
 
