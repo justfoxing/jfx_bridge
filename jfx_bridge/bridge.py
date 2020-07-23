@@ -155,6 +155,109 @@ class BridgeClosedException(Exception):
     pass
 
 
+def stats_hit(func):
+    """ Decorate a function to record how many times it gets hit. Assumes the function is in a class with a stats attribute (can be set to None to
+        disable stats recording     
+    """
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if self.stats is not None:
+            self.stats.add_hit(func.__name__)
+        return func(self, *args, **kwargs)
+        
+    return wrapper
+    
+def stats_time(func):
+    """ Decorate a function to record how long it takes to execute. Assumes the function is in a class with a stats attribute (can be set to None to
+        disable stats recording     
+    """
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        start_time = time.time()
+        return_val = func(self, *args, **kwargs)
+        total_time = time.time() - start_time
+        
+        if self.stats is not None:
+            self.stats.add_time(func.__name__, total_time)
+        
+        return return_val
+        
+    return wrapper
+
+class Stats:
+    """ Class to record the number of hits of particular points (e.g., function calls) and 
+        times (e.g., execution times) for gathering statistics. 
+    """
+        
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.hits = dict() # name -> hit count
+        self.times = dict() # name -> (hit count, cumulative_time)
+        
+    def add_hit(self, hit_name):
+        with self.lock:
+            hit_count = self.hits.get(hit_name, 0)
+            self.hits[hit_name] = hit_count + 1
+            
+    def add_time(self, time_name, time):
+        with self.lock:
+            hit_count, cumulative_time = self.times.get(time_name, (0, 0))
+            self.times[time_name] = (hit_count +1, cumulative_time + time)
+            
+    def total_hits(self):
+        total = 0
+        with self.lock:
+            for value in self.hits.values():
+                total += value
+                
+        return total
+    
+    def total_time(self):
+        total_time_hits = 0
+        total_time = 0
+        with self.lock:
+            for hits, cumulative_time in self.times.values():
+                total_time_hits += hits
+                total_time += cumulative_time
+                
+        return (total_time_hits, total_time)
+            
+    def __str__(self):
+        return "Stats(total_hits={},hits={},total_time={},times={})".format(self.total_hits(), self.hits, self.total_time(), self.times)
+        
+    def copy(self):
+        """ Take a copy of the stats at the current time """
+        copy_stats = Stats()
+        with self.lock:
+            copy_stats.hits = self.hits.copy()
+            copy_stats.times = self.times.copy()
+        
+        return copy_stats
+        
+    def __sub__(self, other):
+        if not isinstance(other, Stats):
+            raise Exception("Can't subtract non-Stats object from a Stats object")
+            
+        # take a copy of this stats, then subtract the other from the copy
+        new_stats = self.copy()
+        
+        # subtract the value of each key in other hits from the corresponding key in new_stats
+        # if new_stats doesn't have the key, treat it as 0
+        # nuke any values which end up as 0
+        for key,value in other.hits.items():
+            new_stats.hits[key] = new_stats.hits.get(key,0) - value
+            if new_stats.hits[key] == 0:
+                del new_stats.hits[key]
+        
+        # as above, but for times
+        for key,value in other.times.items():
+            hit_count, cumulative_time = new_stats.times.get(key,(0,0))
+            new_stats.times[key] = (hit_count-value[0], cumulative_time-value[1])
+            if new_stats.times[key][0] == 0:
+                del new_stats.times[key]
+            
+        return new_stats
+
 SIZE_FORMAT = "!I"
 
 
@@ -491,7 +594,9 @@ class BridgeResponseManager(object):
 class BridgeConn(object):
     """ Internal class, representing a connection to a remote bridge that serves our requests """
 
-    def __init__(self, bridge, sock=None, connect_to_host=None, connect_to_port=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT):
+    stats = None
+
+    def __init__(self, bridge, sock=None, connect_to_host=None, connect_to_port=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, record_stats=False):
         """ Set up the bridge connection - only instantiates a connection as needed """
         self.host = connect_to_host
         self.port = connect_to_port
@@ -519,6 +624,9 @@ class BridgeConn(object):
         # if the bridge has requested a local_call_hook/local_eval_hook, record that
         self.local_call_hook = bridge.local_call_hook
         self.local_eval_hook = bridge.local_eval_hook
+        
+        if record_stats:
+            self.stats = Stats()
 
     def __del__(self):
         """ On teardown, make sure we close our socket to the remote bridge """
@@ -669,6 +777,7 @@ class BridgeConn(object):
 
             return self.sock
 
+    @stats_time
     def send_cmd(self, command_dict, get_response=True, timeout_override=None):
         """ Package and send a command off. If get_response set, wait for the response and return it. Else return none.
             If timeout override set, wait that many seconds, else wait for default response timeout
@@ -700,11 +809,13 @@ class BridgeConn(object):
         else:
             return None
 
+    @stats_hit
     def remote_get(self, handle, name):
         self.logger.debug("remote_get: {}.{}".format(handle, name))
         command_dict = {CMD: GET, ARGS: {HANDLE: handle, NAME: name}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_get(self, args_dict):
         handle = args_dict[HANDLE]
         name = args_dict[NAME]
@@ -719,6 +830,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_set(self, handle, name, value):
         self.logger.debug(
             "remote_set: {}.{} = {}".format(handle, name, value))
@@ -726,6 +838,7 @@ class BridgeConn(object):
                                          NAME: name, VALUE: self.serialize_to_dict(value)}}
         self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_set(self, args_dict):
         handle = args_dict[HANDLE]
         name = args_dict[NAME]
@@ -752,6 +865,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_call(self, handle, *args, **kwargs):
         self.logger.debug(
             "remote_call: {}({},{})".format(handle, args, kwargs))
@@ -763,6 +877,7 @@ class BridgeConn(object):
 
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_call(self, args_dict):
         handle = args_dict[HANDLE]
 
@@ -802,6 +917,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_del(self, handle):
         self.logger.debug("remote_del {}".format(handle))
         command_dict = {CMD: DEL, ARGS: {HANDLE: handle}}
@@ -812,16 +928,19 @@ class BridgeConn(object):
             # just ignore - we want to know if the other operations fail, but deleting failing we can probably get away with
             pass
 
+    @stats_hit
     def local_del(self, args_dict):
         handle = args_dict[HANDLE]
         self.logger.debug("local_del {}".format(handle))
         self.release_handle(handle)
 
+    @stats_hit
     def remote_import(self, module_name):
         self.logger.debug("remote_import {}".format(module_name))
         command_dict = {CMD: IMPORT, ARGS: {NAME: module_name}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_import(self, args_dict):
         name = args_dict[NAME]
 
@@ -835,12 +954,14 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_get_type(self, handle):
         self.logger.debug(
             "remote_get_type {}".format(handle))
         command_dict = {CMD: TYPE, ARGS: {HANDLE: handle}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_get_type(self, args_dict):
         handle = args_dict[HANDLE]
         self.logger.debug("local_get_type {}".format(handle))
@@ -855,6 +976,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_create_type(self, name, bases, dct):
         self.logger.debug(
             "remote_create_type {}, {}, {}".format(name, bases, dct))
@@ -862,6 +984,7 @@ class BridgeConn(object):
             bases), DICT: self.serialize_to_dict(dct)}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_create_type(self, args_dict):
         name = str(args_dict[NAME])  # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
@@ -888,11 +1011,13 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_get_all(self, handle):
         self.logger.debug("remote_get_all {}".format(handle))
         command_dict = {CMD: GET_ALL, ARGS: {HANDLE: handle}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_get_all(self, args_dict):
         handle = args_dict[HANDLE]
         self.logger.debug("local_get_all {}".format(handle))
@@ -902,6 +1027,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_isinstance(self, test_object, class_or_tuple):
         self.logger.debug("remote_isinstance({}, {})".format(
             test_object, class_or_tuple))
@@ -924,6 +1050,7 @@ class BridgeConn(object):
             {OBJ: test_object, TUPLE: check_class_tuple})}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
+    @stats_hit
     def local_isinstance(self, args_dict):
         args = self.deserialize_from_dict(args_dict)
         test_object = args[OBJ]
@@ -953,6 +1080,7 @@ class BridgeConn(object):
 
         return isinstance(test_object, check_class_tuple)
 
+    @stats_hit
     def remote_eval(self, eval_string, timeout_override=None, **kwargs):
         self.logger.debug("remote_eval({}, {})".format(eval_string, kwargs))
 
@@ -965,6 +1093,7 @@ class BridgeConn(object):
 
         return self.deserialize_from_dict(result)
 
+    @stats_hit
     def local_eval(self, args_dict):
         args = self.deserialize_from_dict(args_dict)
 
@@ -1000,6 +1129,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def remote_shutdown(self):
         self.logger.debug("remote_shutdown")
         result = self.deserialize_from_dict(self.send_cmd({CMD: SHUTDOWN}))
@@ -1010,6 +1140,7 @@ class BridgeConn(object):
 
         return result
 
+    @stats_hit
     def local_shutdown(self):
         global GLOBAL_BRIDGE_SHUTDOWN
 
@@ -1107,6 +1238,15 @@ class BridgeConn(object):
 
         return bridge_type(self, obj_dict)
 
+    def get_stats(self):
+        """ Get a copy of the statistics accumulated in the run of this connection so far. Requires that __init__ was called with
+            record_stats=True
+        """
+        stats = None
+        if self.stats is not None:
+            stats = self.stats.copy()
+            
+        return stats
 
 class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClient share a class
     """ Python2Python RPC bridge server 
@@ -1181,7 +1321,7 @@ class BridgeClient(object): # TODO make the external bridges inherit from this.
     local_eval_hook = None
     _bridge = None
 
-    def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False):
+    def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False, record_stats=False):
         """ Set up the bridge client
             connect_to_host/port - host/port to connect to run commands. 
             loglevel - what messages to log (e.g., logging.INFO, logging.DEBUG)
@@ -1196,7 +1336,7 @@ class BridgeClient(object): # TODO make the external bridges inherit from this.
         self.logger.setLevel(loglevel)
 
         self.client = BridgeConn(
-            self, sock=None, connect_to_host=connect_to_host, connect_to_port=connect_to_port, response_timeout=response_timeout)
+            self, sock=None, connect_to_host=connect_to_host, connect_to_port=connect_to_port, response_timeout=response_timeout, record_stats=record_stats)
 
         if hook_import:
             # add a path_hook for this bridge
@@ -1235,6 +1375,10 @@ class BridgeClient(object): # TODO make the external bridges inherit from this.
 
     def remote_shutdown(self):
         return self.client.remote_shutdown()
+        
+    def get_stats(self):
+        """ Get the statistics recorded across the run of this BridgeClient """
+        return self.client.get_stats()
 
 
 def _is_bridged_object(object):
@@ -1572,3 +1716,5 @@ class BridgedModuleFinderLoader:
 
         # hand back the module
         return target
+
+            
