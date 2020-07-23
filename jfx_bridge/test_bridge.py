@@ -421,6 +421,31 @@ class TestBridge(unittest.TestCase):
             self.assertEquals(bytes(dq), "deque([1])")
         else:
             self.assertEquals(bytes(dq), b"\x01")
+            
+    @print_stats
+    def test_remote_inheritance(self):
+        """ check that we can inherit from a remote type """
+        remote_collections = self.test_bridge.remote_import("collections")
+        remote_deque = remote_collections.deque
+        
+        class new_deque(remote_deque):
+            def __init__(self, test):
+                remote_deque.__init__(self)
+                self.test = test
+                self.called = False
+                
+            def append(self, x):
+                remote_deque.append(self, x)
+                self.called = True
+                
+        nd = new_deque("test")
+        self.assertEquals(nd.test, "test")
+        
+        nd.append(1)
+        self.assertTrue(nd.called)
+        self.assertEquals(nd.pop(), 1)
+        
+        self.assertTrue(not isinstance(nd.append, bridge.BridgedCallable), "Expected local implementation to stay local - is actually: " + str(type(nd.append)))
 
 
 class TestBridgeHookImport(unittest.TestCase):

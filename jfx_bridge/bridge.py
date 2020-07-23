@@ -69,9 +69,7 @@ DEFAULT_SERVER_PORT = 27238  # 0x6a66 = "jf"
 VERSION = "v"
 MAX_VERSION = "max_v"
 MIN_VERSION = "min_v"
-COMMS_VERSION_1 = 1
-COMMS_VERSION_2 = 2
-COMMS_VERSION_3 = 3
+COMMS_VERSION_4 = 4
 TYPE = "type"
 VALUE = "value"
 KEY = "key"
@@ -84,6 +82,7 @@ BOOL = "bool"
 STR = "str"
 BYTES = "bytes"
 NONE = "none"
+PARTIAL = "partial"
 NOTIMPLEMENTED = "notimp"
 BRIDGED = "bridged"
 EXCEPTION = "exception"
@@ -118,9 +117,9 @@ KWARGS = "kwargs"
 
 BRIDGE_PREFIX = "_bridge"
 
-# Comms v3 (alpha) changes the bridged object representation to include the type - one day, I'll support backwards compatibility
-MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_3
-MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_3
+# Comms v4 (alpha) adds partials to the serialization - one day, I'll support backwards compatibility
+MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_4
+MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_4
 
 DEFAULT_RESPONSE_TIMEOUT = 2  # seconds
 
@@ -338,7 +337,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     self.bridge_conn.logger.error(
                         "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
-                    result = json.dumps({VERSION: COMMS_VERSION_3, TYPE: ERROR, ID: cmd[ID], }).encode("utf-8")
+                    result = json.dumps({VERSION: COMMS_VERSION_4, TYPE: ERROR, ID: cmd[ID], }).encode("utf-8")
 
                 try:
                     write_size_and_data_to_socket(
@@ -719,11 +718,18 @@ class BridgeConn(object):
             serialized_dict = {TYPE: NONE}
         elif isinstance(data, type(NotImplemented)):
             serialized_dict = {TYPE: NOTIMPLEMENTED}
+        elif isinstance(data, functools.partial) and isinstance(data.func, BridgedCallable):
+            # if it's a partial, possible that it's against a remote function - in that case, instead of sending it back as a BridgedCallable
+            # to get remote called back here where we'll issue a call to the original function, we'll send it with the partial's details so
+            # it can be reconstructed on the other side (0 round-trips instead of 2 round-trips)
+            # TODO do we have to worry about data.func being from a different bridge connection?
+            serialized_dict = {TYPE: PARTIAL, VALUE: self.serialize_to_dict(data.func), ARGS: self.serialize_to_dict(data.args), KWARGS: self.serialize_to_dict(data.keywords)}
         else:
             # it's an object. assign a reference
             obj_type = CALLABLE_OBJ if callable(data) else OBJ
             serialized_dict = {TYPE: obj_type,
                                VALUE: self.create_handle(data).to_dict()}
+        
 
         return serialized_dict
 
@@ -758,6 +764,11 @@ class BridgeConn(object):
             return None
         elif serial_dict[TYPE] == NOTIMPLEMENTED:
             return NotImplemented
+        elif serial_dict[TYPE] == PARTIAL:
+            func = self.deserialize_from_dict(serial_dict[VALUE])
+            args = self.deserialize_from_dict(serial_dict[ARGS])
+            keywords = self.deserialize_from_dict(serial_dict[KWARGS])
+            return functools.partial(func, *args, **keywords)
         elif serial_dict[TYPE] == OBJ or serial_dict[TYPE] == CALLABLE_OBJ:
             return self.build_bridged_object(serial_dict[VALUE], callable=(serial_dict[TYPE] == CALLABLE_OBJ))
 
@@ -783,7 +794,7 @@ class BridgeConn(object):
             If timeout override set, wait that many seconds, else wait for default response timeout
         """
         cmd_id = str(uuid.uuid4())  # used to link commands and responses
-        envelope_dict = {VERSION: COMMS_VERSION_3,
+        envelope_dict = {VERSION: COMMS_VERSION_4,
                          ID: cmd_id,
                          TYPE: CMD,
                          CMD: command_dict}
@@ -1151,7 +1162,7 @@ class BridgeConn(object):
         return {SHUTDOWN: True}
 
     def handle_command(self, message_dict):
-        response_dict = {VERSION: COMMS_VERSION_3,
+        response_dict = {VERSION: COMMS_VERSION_4,
                          ID: message_dict[ID],
                          TYPE: RESULT,
                          RESULT: {}}
@@ -1314,7 +1325,7 @@ class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClien
             self.server.server_close()
 
 
-class BridgeClient(object): # TODO make the external bridges inherit from this.
+class BridgeClient(object):
     """ Python2Python RPC bridge client """
     
     local_call_hook = None
