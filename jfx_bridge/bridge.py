@@ -767,7 +767,11 @@ class BridgeConn(object):
         elif serial_dict[TYPE] == PARTIAL:
             func = self.deserialize_from_dict(serial_dict[VALUE])
             args = self.deserialize_from_dict(serial_dict[ARGS])
+            if args is None:
+                args = ()
             keywords = self.deserialize_from_dict(serial_dict[KWARGS])
+            if keywords is None:
+                keywords = {}
             return functools.partial(func, *args, **keywords)
         elif serial_dict[TYPE] == OBJ or serial_dict[TYPE] == CALLABLE_OBJ:
             return self.build_bridged_object(serial_dict[VALUE], callable=(serial_dict[TYPE] == CALLABLE_OBJ))
