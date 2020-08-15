@@ -33,13 +33,17 @@ class TestBridge(unittest.TestCase):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True)
+        cls.total_start_stats = cls.test_bridge.get_stats()
+        
+    @classmethod
+    def tearDownClass(cls):
+        total_stats = cls.test_bridge.get_stats()
+        print("\n{}:\n\t{}\n".format("TestBridge Total", cls.test_bridge.get_stats()-cls.total_start_stats))
 
     @print_stats
     def test_import(self):
-        start_stats = self.test_bridge.get_stats()
         mod = self.test_bridge.remote_import("base64")
         self.assertTrue(mod is not None)
-        total_stats = self.test_bridge.get_stats() - start_stats
 
     @print_stats
     def test_call_no_args(self):
@@ -454,6 +458,23 @@ class TestBridge(unittest.TestCase):
         remote_time = self.test_bridge.remote_import("time")
         # would expect this to timeout - but instead should send off and keep going
         remote_time.sleep._bridge_call_nonreturn(10)
+        
+    @print_stats
+    def test_nonreturn_doesnt_respond(self):
+        """ Test that a nonreturn call doesn't cause a response to show up
+        """
+        remote_collections = self.test_bridge.remote_import("collections")
+        dq = remote_collections.deque()
+        # let any responses in flight trickle home
+        time.sleep(1)
+        # record the size of the response manager
+        response_count = len(self.test_bridge.client.response_mgr.response_dict)
+        # expect no response
+        dq.append._bridge_call_nonreturn(1)
+        # let any responses in flight trickle home
+        time.sleep(1)
+        # check that there aren't more responses
+        self.assertTrue(response_count >= len(self.test_bridge.client.response_mgr.response_dict))
 
 
 class TestBridgeHookImport(unittest.TestCase):

@@ -108,6 +108,7 @@ EXPR = "expr"
 RESULT = "result"
 ERROR = "error"
 SHUTDOWN = "shutdown"
+RESPOND = "respond"
 
 HANDLE = "handle"
 NAME = "name"
@@ -341,20 +342,26 @@ class BridgeCommandHandlerThread(threading.Thread):
                 # handle a command and write back the response
                 # TODO make this return an error tied to the cmd_id, so it goes in the response mgr
                 result = None
+                
+                # see if the command wants a response
+                want_response = cmd.get(RESPOND, True)
+                
                 try:
-                    result = self.bridge_conn.handle_command(cmd)
+                    result = self.bridge_conn.handle_command(cmd, want_response=want_response)
                 except Exception as e:
                     self.bridge_conn.logger.error(
                         "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
                     result = json.dumps({VERSION: COMMS_VERSION_4, TYPE: ERROR, ID: cmd[ID], }).encode("utf-8")
 
-                try:
-                    write_size_and_data_to_socket(
-                        self.bridge_conn.get_socket(), result)
-                except socket.error:
-                    # Other end has closed the socket before we can respond. That's fine, just ask me to do something then ignore me. Jerk. Don't bother staying around, they're probably dead
-                    break
+                # only reply if the command wants a response
+                if want_response:
+                    try:
+                        write_size_and_data_to_socket(
+                            self.bridge_conn.get_socket(), result)
+                    except socket.error:
+                        # Other end has closed the socket before we can respond. That's fine, just ask me to do something then ignore me. Jerk. Don't bother staying around, they're probably dead
+                        break
 
                 cmd = self.threadpool.get_command()  # block, waiting for next command
         except ReferenceError:
@@ -810,7 +817,8 @@ class BridgeConn(object):
         envelope_dict = {VERSION: COMMS_VERSION_4,
                          ID: cmd_id,
                          TYPE: CMD,
-                         CMD: command_dict}
+                         CMD: command_dict,
+                         RESPOND: get_response}
         self.logger.debug("Sending {}".format(envelope_dict))
         data = json.dumps(envelope_dict).encode("utf-8")
 
@@ -1187,7 +1195,7 @@ class BridgeConn(object):
 
         return {SHUTDOWN: True}
 
-    def handle_command(self, message_dict):
+    def handle_command(self, message_dict, want_response=True):
         response_dict = {VERSION: COMMS_VERSION_4,
                          ID: message_dict[ID],
                          TYPE: RESULT,
@@ -1220,10 +1228,14 @@ class BridgeConn(object):
             elif command_dict[CMD] == SHUTDOWN:
                 result = self.local_shutdown()
 
-            response_dict[RESULT] = self.serialize_to_dict(result)
+            if want_response: # only serialize if we want a response
+                response_dict[RESULT] = self.serialize_to_dict(result)
 
-        self.logger.debug("Responding with {}".format(response_dict))
-        return json.dumps(response_dict).encode("utf-8")
+        if want_response:
+            self.logger.debug("Responding with {}".format(response_dict))
+            return json.dumps(response_dict).encode("utf-8")
+        else:
+            return None
 
     def get_bridge_type(self, bridged_obj_dict, callable=False):
         # Get a dynamic bridging type from the cache based on the type name, or create it based on the type recovered from the instance bridge handle
