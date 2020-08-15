@@ -1,6 +1,7 @@
 """ Handles converting data back and forward between 2 and 3 """
 
 from __future__ import unicode_literals  # string literals are all unicode
+
 try:
     import SocketServer as socketserver  # py2
 except Exception:
@@ -41,6 +42,7 @@ except NameError:  # py3 has no unicode
 EXCEPTION_TYPES = None
 try:
     import java
+
     EXCEPTION_TYPES = (Exception, java.lang.Throwable)
 except ImportError:
     # Nope, just normal python here
@@ -49,12 +51,15 @@ except ImportError:
 ENUM_TYPE = ()
 try:
     from enum import Enum
+
     ENUM_TYPE = (Enum,)
 except ImportError:  # py2 has no enum
     pass
 
 if sys.version_info[0] == 2:
-    from socket import error as ConnectionError  # ConnectionError not defined in python2, this is next closest thing
+    from socket import (
+        error as ConnectionError,
+    )  # ConnectionError not defined in python2, this is next closest thing
     from socket import error as ConnectionResetError  # as above
 
 
@@ -134,7 +139,12 @@ BRIDGED_CLASS_METHODS = ["__str__", "__len__", "__iter__"]
 # extract methods from operator, so I don't have to type out all the different options
 for operator_name in dir(operator):
     # only do the methods that start and end with __, and exclude __new__
-    if operator_name.startswith("__") and operator_name.endswith("__") and operator_name != "__new__" and "builtin_function_or_method" in str(type(getattr(operator, operator_name))):
+    if (
+        operator_name.startswith("__")
+        and operator_name.endswith("__")
+        and operator_name != "__new__"
+        and "builtin_function_or_method" in str(type(getattr(operator, operator_name)))
+    ):
         BRIDGED_CLASS_METHODS.append(operator_name)
 
 
@@ -142,16 +152,19 @@ class BridgeException(Exception):
     """ An exception happened on the other side of the bridge and has been proxied back here
         The bridge is fine, but the remote code you ran might have had an issue.
     """
+
     pass
 
 
 class BridgeOperationException(Exception):
     """ Some issue happened with the operation of the bridge itself. The bridge may not be in a good state """
+
     pass
 
 
 class BridgeClosedException(Exception):
     """ The bridge has closed """
+
     pass
 
 
@@ -159,6 +172,7 @@ class BridgeTimeoutException(Exception):
     """ A command we tried to run across the bridge took too long. You might need to increase the response timeout, check the command isn't
         causing a deadlock, or make sure the network connection to the other end of the bridge is okay.
     """
+
     pass
 
 
@@ -166,6 +180,7 @@ def stats_hit(func):
     """ Decorate a function to record how many times it gets hit. Assumes the function is in a class with a stats attribute (can be set to None to
         disable stats recording     
     """
+
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         if self.stats is not None:
@@ -179,6 +194,7 @@ def stats_time(func):
     """ Decorate a function to record how long it takes to execute. Assumes the function is in a class with a stats attribute (can be set to None to
         disable stats recording     
     """
+
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         start_time = time.time()
@@ -232,7 +248,9 @@ class Stats:
         return (total_time_hits, total_time)
 
     def __str__(self):
-        return "Stats(total_hits={},hits={},total_time={},times={})".format(self.total_hits(), self.hits, self.total_time(), self.times)
+        return "Stats(total_hits={},hits={},total_time={},times={})".format(
+            self.total_hits(), self.hits, self.total_time(), self.times
+        )
 
     def copy(self):
         """ Take a copy of the stats at the current time """
@@ -261,7 +279,7 @@ class Stats:
         # as above, but for times
         for key, value in other.times.items():
             hit_count, cumulative_time = new_stats.times.get(key, (0, 0))
-            new_stats.times[key] = (hit_count-value[0], cumulative_time-value[1])
+            new_stats.times[key] = (hit_count - value[0], cumulative_time - value[1])
             if new_stats.times[key][0] == 0:
                 del new_stats.times[key]
 
@@ -290,7 +308,7 @@ def write_size_and_data_to_socket(sock, data):
 
 def read_exactly(sock, num_bytes):
     """ Utility function to keep reading from the socket until we get the desired number of bytes """
-    data = b''
+    data = b""
     while num_bytes > 0:
         new_data = sock.recv(num_bytes)
         if new_data is None:
@@ -316,7 +334,9 @@ def read_size_and_data_from_socket(sock):
 
 def can_handle_version(message_dict):
     """ Utility function for checking we know about this version """
-    return (message_dict[VERSION] <= MAX_SUPPORTED_COMMS_VERSION) and (message_dict[VERSION] >= MIN_SUPPORTED_COMMS_VERSION)
+    return (message_dict[VERSION] <= MAX_SUPPORTED_COMMS_VERSION) and (
+        message_dict[VERSION] >= MIN_SUPPORTED_COMMS_VERSION
+    )
 
 
 class BridgeCommandHandlerThread(threading.Thread):
@@ -342,23 +362,31 @@ class BridgeCommandHandlerThread(threading.Thread):
                 # handle a command and write back the response
                 # TODO make this return an error tied to the cmd_id, so it goes in the response mgr
                 result = None
-                
+
                 # see if the command wants a response
                 want_response = cmd.get(RESPOND, True)
-                
+
                 try:
-                    result = self.bridge_conn.handle_command(cmd, want_response=want_response)
+                    result = self.bridge_conn.handle_command(
+                        cmd, want_response=want_response
+                    )
                 except Exception as e:
                     self.bridge_conn.logger.error(
-                        "Unexpected exception for {}: {}\n{}".format(cmd, e, traceback.format_exc()))
+                        "Unexpected exception for {}: {}\n{}".format(
+                            cmd, e, traceback.format_exc()
+                        )
+                    )
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
-                    result = json.dumps({VERSION: COMMS_VERSION_4, TYPE: ERROR, ID: cmd[ID], }).encode("utf-8")
+                    result = json.dumps(
+                        {VERSION: COMMS_VERSION_4, TYPE: ERROR, ID: cmd[ID],}
+                    ).encode("utf-8")
 
                 # only reply if the command wants a response
                 if want_response:
                     try:
                         write_size_and_data_to_socket(
-                            self.bridge_conn.get_socket(), result)
+                            self.bridge_conn.get_socket(), result
+                        )
                     except socket.error:
                         # Other end has closed the socket before we can respond. That's fine, just ask me to do something then ignore me. Jerk. Don't bother staying around, they're probably dead
                         break
@@ -371,6 +399,7 @@ class BridgeCommandHandlerThread(threading.Thread):
 
 class BridgeCommandHandlerThreadPool(object):
     """ Takes commands and handles spinning up threads to run them. Will keep the threads that are started and reuse them before creating new ones """
+
     bridge_conn = None
     # semaphore indicating how many threads are ready right now to grab a command
     ready_threads = None
@@ -382,8 +411,7 @@ class BridgeCommandHandlerThreadPool(object):
     def __init__(self, bridge_conn):
         self.thread_count = 0
         self.bridge_conn = bridge_conn
-        self.ready_threads = threading.Semaphore(
-            0)  # start the ready threads at 0
+        self.ready_threads = threading.Semaphore(0)  # start the ready threads at 0
         self.command_list = list()
         self.command_list_read_lock = threading.Lock()
         self.command_list_write_lock = threading.Lock()
@@ -395,7 +423,8 @@ class BridgeCommandHandlerThreadPool(object):
             # no ready threads waiting - create a new one
             self.thread_count += 1
             self.bridge_conn.logger.debug(
-                "Creating thread - now {} threads".format(self.thread_count))
+                "Creating thread - now {} threads".format(self.thread_count)
+            )
             new_handler = BridgeCommandHandlerThread(self)
             new_handler.start()
         else:
@@ -439,7 +468,12 @@ class BridgeReceiverThread(threading.Thread):
 
     # If we don't know how to handle the version, reply back with an error and the highest version we do support
     ERROR_UNSUPPORTED_VERSION = json.dumps(
-        {ERROR: True, MAX_VERSION: MAX_SUPPORTED_COMMS_VERSION, MIN_VERSION: MIN_SUPPORTED_COMMS_VERSION})
+        {
+            ERROR: True,
+            MAX_VERSION: MAX_SUPPORTED_COMMS_VERSION,
+            MIN_VERSION: MIN_SUPPORTED_COMMS_VERSION,
+        }
+    )
 
     def __init__(self, bridge_conn):
         super(BridgeReceiverThread, self).__init__()
@@ -455,8 +489,7 @@ class BridgeReceiverThread(threading.Thread):
 
         while not GLOBAL_BRIDGE_SHUTDOWN:
             try:
-                data = read_size_and_data_from_socket(
-                    self.bridge_conn.get_socket())
+                data = read_size_and_data_from_socket(self.bridge_conn.get_socket())
             except socket.timeout:
                 # client didn't have anything to say - just wait some more
                 time.sleep(0.1)
@@ -464,8 +497,7 @@ class BridgeReceiverThread(threading.Thread):
 
             try:
                 msg_dict = json.loads(data.decode("utf-8"))
-                self.bridge_conn.logger.debug(
-                    "Recv loop received {}".format(msg_dict))
+                self.bridge_conn.logger.debug("Recv loop received {}".format(msg_dict))
 
                 if can_handle_version(msg_dict):
                     if msg_dict[TYPE] in [RESULT, ERROR]:
@@ -477,7 +509,9 @@ class BridgeReceiverThread(threading.Thread):
                 else:
                     # bad version
                     write_size_and_data_to_socket(
-                        self.bridge_conn.get_socket(), BridgeReceiverThread.ERROR_UNSUPPORTED_VERSION)
+                        self.bridge_conn.get_socket(),
+                        BridgeReceiverThread.ERROR_UNSUPPORTED_VERSION,
+                    )
             except Exception as e:
                 # eat exceptions and continue, don't want a bad message killing the recv loop
                 self.bridge_conn.logger.exception(e)
@@ -486,18 +520,25 @@ class BridgeReceiverThread(threading.Thread):
 
 
 class BridgeCommandHandler(socketserver.BaseRequestHandler):
-
     def handle(self):
         """ handle a new client connection coming in - continue trying to read/service requests in a loop until we fail to send/recv """
         self.server.bridge.logger.warn(
-            "Handling connection from {}".format(self.request.getpeername()))
+            "Handling connection from {}".format(self.request.getpeername())
+        )
         try:
             # run the recv loop directly
-            BridgeReceiverThread(BridgeConn(
-                self.server.bridge, self.request, response_timeout=self.server.bridge.response_timeout)).run()
+            BridgeReceiverThread(
+                BridgeConn(
+                    self.server.bridge,
+                    self.request,
+                    response_timeout=self.server.bridge.response_timeout,
+                )
+            ).run()
 
             # only get here if the client has requested we shutdown the bridge
-            self.server.bridge.logger.debug("Receiver thread exited - bridge shutdown requested")
+            self.server.bridge.logger.debug(
+                "Receiver thread exited - bridge shutdown requested"
+            )
             self.server.bridge.shutdown()
         except (BridgeClosedException, ConnectionResetError):
             pass  # expected - the client has closed the connection
@@ -506,7 +547,8 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
             self.server.bridge.logger.exception(e)
         finally:
             self.server.bridge.logger.warn(
-                "Closing connection from {}".format(self.request.getpeername()))
+                "Closing connection from {}".format(self.request.getpeername())
+            )
             # we're out of the loop now, so the connection object will get told to delete itself, which will remove its references to any objects its holding onto
 
 
@@ -525,7 +567,12 @@ class BridgeHandle(object):
         else:
             # just use the repr straight up
             type_name = type_repr
-        return {HANDLE: self.handle, TYPE: type_name, ATTRS: self.attrs, REPR: repr(self.local_obj)}
+        return {
+            HANDLE: self.handle,
+            TYPE: type_name,
+            ATTRS: self.attrs,
+            REPR: repr(self.local_obj),
+        }
 
     def __str__(self):
         return "BridgeHandle({}: {})".format(self.handle, self.local_obj)
@@ -533,6 +580,7 @@ class BridgeHandle(object):
 
 class BridgeResponse(object):
     """ Utility class for waiting for and receiving responses """
+
     event = None  # used to flag whether the response is ready
     response = None
 
@@ -556,13 +604,15 @@ class BridgeResponse(object):
 
         if not self.event.wait(timeout):
             raise BridgeTimeoutException(
-                "Didn't receive response {} before timeout".format(self.response_id))
+                "Didn't receive response {} before timeout".format(self.response_id)
+            )
 
         return self.response
 
 
 class BridgeResponseManager(object):
     """ Handles waiting for and receiving responses """
+
     response_dict = None  # maps response ids to a BridgeResponse
     response_lock = None
 
@@ -609,7 +659,15 @@ class BridgeConn(object):
 
     stats = None
 
-    def __init__(self, bridge, sock=None, connect_to_host=None, connect_to_port=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, record_stats=False):
+    def __init__(
+        self,
+        bridge,
+        sock=None,
+        connect_to_host=None,
+        connect_to_port=None,
+        response_timeout=DEFAULT_RESPONSE_TIMEOUT,
+        record_stats=False,
+    ):
         """ Set up the bridge connection - only instantiates a connection as needed """
         self.host = connect_to_host
         self.port = connect_to_port
@@ -653,8 +711,7 @@ class BridgeConn(object):
         with self.handle_lock:
             self.handle_dict[bridge_handle.handle] = bridge_handle
 
-        self.logger.debug(
-            "Handle created {} for {}".format(bridge_handle.handle, obj))
+        self.logger.debug("Handle created {} for {}".format(bridge_handle.handle, obj))
 
         return bridge_handle
 
@@ -686,7 +743,10 @@ class BridgeConn(object):
             # work out the cutoff time for when we'd delete delayed handles
             delay_exceeded_time = time.time() - self.response_timeout
             # run over delay_delete_handles until it's empty or the times are later than the delay_exceeded_time
-            while len(self.delay_delete_handles) > 0 and self.delay_delete_handles[0][1] <= delay_exceeded_time:
+            while (
+                len(self.delay_delete_handles) > 0
+                and self.delay_delete_handles[0][1] <= delay_exceeded_time
+            ):
                 handle = self.delay_delete_handles[0][0]
                 # actually remove the handle
                 del self.handle_dict[handle]
@@ -705,26 +765,44 @@ class BridgeConn(object):
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
         elif isinstance(data, STRING_TYPES):  # all strings are coerced to unicode
-            serialized_dict = {TYPE: STR, VALUE: base64.b64encode(
-                data.encode("utf-8")).decode("utf-8")}
+            serialized_dict = {
+                TYPE: STR,
+                VALUE: base64.b64encode(data.encode("utf-8")).decode("utf-8"),
+            }
         elif isinstance(data, bytes):  # py3 only, bytestring in 2 is str
-            serialized_dict = {TYPE: BYTES,
-                               VALUE: base64.b64encode(data).decode("utf-8")}
+            serialized_dict = {
+                TYPE: BYTES,
+                VALUE: base64.b64encode(data).decode("utf-8"),
+            }
         elif isinstance(data, list):
-            serialized_dict = {TYPE: LIST, VALUE: [
-                self.serialize_to_dict(v) for v in data]}
+            serialized_dict = {
+                TYPE: LIST,
+                VALUE: [self.serialize_to_dict(v) for v in data],
+            }
         elif isinstance(data, tuple):
-            serialized_dict = {TYPE: TUPLE, VALUE: [
-                self.serialize_to_dict(v) for v in data]}
+            serialized_dict = {
+                TYPE: TUPLE,
+                VALUE: [self.serialize_to_dict(v) for v in data],
+            }
         elif isinstance(data, dict):
-            serialized_dict = {TYPE: DICT, VALUE: [{KEY: self.serialize_to_dict(
-                k), VALUE: self.serialize_to_dict(v)} for k, v in data.items()]}
-        elif isinstance(data, EXCEPTION_TYPES):  # will also catch java.lang.Throwable in jython context
+            serialized_dict = {
+                TYPE: DICT,
+                VALUE: [
+                    {KEY: self.serialize_to_dict(k), VALUE: self.serialize_to_dict(v)}
+                    for k, v in data.items()
+                ],
+            }
+        elif isinstance(
+            data, EXCEPTION_TYPES
+        ):  # will also catch java.lang.Throwable in jython context
             # treat the exception object as an object
             value = self.create_handle(data).to_dict()
             # then wrap the exception specifics around it
-            serialized_dict = {TYPE: EXCEPTION, VALUE: value, MESSAGE: self.serialize_to_dict(
-                getattr(data, "message", ""))}
+            serialized_dict = {
+                TYPE: EXCEPTION,
+                VALUE: value,
+                MESSAGE: self.serialize_to_dict(getattr(data, "message", "")),
+            }
         elif isinstance(data, BridgedObject):
             # passing back a reference to an object on the other side
             # e.g., bridge_obj1.do_thing(bridge_obj2)
@@ -733,18 +811,26 @@ class BridgeConn(object):
             serialized_dict = {TYPE: NONE}
         elif isinstance(data, type(NotImplemented)):
             serialized_dict = {TYPE: NOTIMPLEMENTED}
-        elif isinstance(data, functools.partial) and isinstance(data.func, BridgedCallable):
+        elif isinstance(data, functools.partial) and isinstance(
+            data.func, BridgedCallable
+        ):
             # if it's a partial, possible that it's against a remote function - in that case, instead of sending it back as a BridgedCallable
             # to get remote called back here where we'll issue a call to the original function, we'll send it with the partial's details so
             # it can be reconstructed on the other side (0 round-trips instead of 2 round-trips)
             # TODO do we have to worry about data.func being from a different bridge connection?
-            serialized_dict = {TYPE: PARTIAL, VALUE: self.serialize_to_dict(
-                data.func), ARGS: self.serialize_to_dict(data.args), KWARGS: self.serialize_to_dict(data.keywords)}
+            serialized_dict = {
+                TYPE: PARTIAL,
+                VALUE: self.serialize_to_dict(data.func),
+                ARGS: self.serialize_to_dict(data.args),
+                KWARGS: self.serialize_to_dict(data.keywords),
+            }
         else:
             # it's an object. assign a reference
             obj_type = CALLABLE_OBJ if callable(data) else OBJ
-            serialized_dict = {TYPE: obj_type,
-                               VALUE: self.create_handle(data).to_dict()}
+            serialized_dict = {
+                TYPE: obj_type,
+                VALUE: self.create_handle(data).to_dict(),
+            }
 
         return serialized_dict
 
@@ -772,8 +858,10 @@ class BridgeConn(object):
 
             return result
         elif serial_dict[TYPE] == EXCEPTION:
-            raise BridgeException(self.deserialize_from_dict(
-                serial_dict[MESSAGE]), self.build_bridged_object(serial_dict[VALUE]))
+            raise BridgeException(
+                self.deserialize_from_dict(serial_dict[MESSAGE]),
+                self.build_bridged_object(serial_dict[VALUE]),
+            )
         elif serial_dict[TYPE] == BRIDGED:
             return self.get_object_by_handle(serial_dict[VALUE])
         elif serial_dict[TYPE] == NONE:
@@ -790,7 +878,9 @@ class BridgeConn(object):
                 keywords = {}
             return functools.partial(func, *args, **keywords)
         elif serial_dict[TYPE] == OBJ or serial_dict[TYPE] == CALLABLE_OBJ:
-            return self.build_bridged_object(serial_dict[VALUE], callable=(serial_dict[TYPE] == CALLABLE_OBJ))
+            return self.build_bridged_object(
+                serial_dict[VALUE], callable=(serial_dict[TYPE] == CALLABLE_OBJ)
+            )
 
         raise Exception("Unhandled data {}".format(serial_dict))
 
@@ -798,7 +888,8 @@ class BridgeConn(object):
         with self.comms_lock:
             if self.sock is None:
                 self.logger.debug(
-                    "Creating socket to {}:{}".format(self.host, self.port))
+                    "Creating socket to {}:{}".format(self.host, self.port)
+                )
                 # Create a socket (SOCK_STREAM means a TCP socket)
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.settimeout(10)
@@ -814,11 +905,13 @@ class BridgeConn(object):
             If timeout override set, wait that many seconds, else wait for default response timeout
         """
         cmd_id = str(uuid.uuid4())  # used to link commands and responses
-        envelope_dict = {VERSION: COMMS_VERSION_4,
-                         ID: cmd_id,
-                         TYPE: CMD,
-                         CMD: command_dict,
-                         RESPOND: get_response}
+        envelope_dict = {
+            VERSION: COMMS_VERSION_4,
+            ID: cmd_id,
+            TYPE: CMD,
+            CMD: command_dict,
+            RESPOND: get_response,
+        }
         self.logger.debug("Sending {}".format(envelope_dict))
         data = json.dumps(envelope_dict).encode("utf-8")
 
@@ -832,7 +925,11 @@ class BridgeConn(object):
             result = {}
             # wait for the response
             response_dict = self.response_mgr.get_response(
-                cmd_id, timeout=timeout_override if timeout_override is not None else self.response_timeout)
+                cmd_id,
+                timeout=timeout_override
+                if timeout_override is not None
+                else self.response_timeout,
+            )
 
             if response_dict is not None:
                 if RESULT in response_dict:
@@ -864,10 +961,11 @@ class BridgeConn(object):
 
     @stats_hit
     def remote_set(self, handle, name, value):
-        self.logger.debug(
-            "remote_set: {}.{} = {}".format(handle, name, value))
-        command_dict = {CMD: SET, ARGS: {HANDLE: handle,
-                                         NAME: name, VALUE: self.serialize_to_dict(value)}}
+        self.logger.debug("remote_set: {}.{} = {}".format(handle, name, value))
+        command_dict = {
+            CMD: SET,
+            ARGS: {HANDLE: handle, NAME: name, VALUE: self.serialize_to_dict(value)},
+        }
         self.deserialize_from_dict(self.send_cmd(command_dict))
 
     @stats_hit
@@ -883,9 +981,16 @@ class BridgeConn(object):
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_set: {}.{} = {}".format(handle, name, value))
             except Exception as e:
-                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
                 self.logger.debug(
-                    "Falling back:\n\tlocal_set: {}.{} = {}".format(handle, name, args_dict[VALUE]))
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug(
+                    "Falling back:\n\tlocal_set: {}.{} = {}".format(
+                        handle, name, args_dict[VALUE]
+                    )
+                )
 
         target = self.get_object_by_handle(handle)
         result = None
@@ -899,26 +1004,30 @@ class BridgeConn(object):
 
     @stats_hit
     def remote_call(self, handle, *args, **kwargs):
-        self.logger.debug(
-            "remote_call: {}({},{})".format(handle, args, kwargs))
+        self.logger.debug("remote_call: {}({},{})".format(handle, args, kwargs))
 
         serial_args = self.serialize_to_dict(args)
         serial_kwargs = self.serialize_to_dict(kwargs)
-        command_dict = {CMD: CALL, ARGS: {HANDLE: handle,
-                                          ARGS: serial_args, KWARGS: serial_kwargs}}
+        command_dict = {
+            CMD: CALL,
+            ARGS: {HANDLE: handle, ARGS: serial_args, KWARGS: serial_kwargs},
+        }
 
         return self.deserialize_from_dict(self.send_cmd(command_dict))
-        
+
     @stats_hit
     def remote_call_nonreturn(self, handle, *args, **kwargs):
         """ As per remote_call, but without expecting a response """
         self.logger.debug(
-            "remote_call_nonreturn: {}({},{})".format(handle, args, kwargs))
+            "remote_call_nonreturn: {}({},{})".format(handle, args, kwargs)
+        )
 
         serial_args = self.serialize_to_dict(args)
         serial_kwargs = self.serialize_to_dict(kwargs)
-        command_dict = {CMD: CALL, ARGS: {HANDLE: handle,
-                                          ARGS: serial_args, KWARGS: serial_kwargs}}
+        command_dict = {
+            CMD: CALL,
+            ARGS: {HANDLE: handle, ARGS: serial_args, KWARGS: serial_kwargs},
+        }
 
         self.send_cmd(command_dict, get_response=False)
 
@@ -934,12 +1043,18 @@ class BridgeConn(object):
                 # we want to get log the deserialized values, because they're useful.
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
-                self.logger.debug(
-                    "local_call: {}({},{})".format(handle, args, kwargs))
+                self.logger.debug("local_call: {}({},{})".format(handle, args, kwargs))
             except Exception as e:
-                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
                 self.logger.debug(
-                    "Falling back:\n\tlocal_call: {}({},{})".format(handle, args_dict[ARGS], args_dict[KWARGS]))
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug(
+                    "Falling back:\n\tlocal_call: {}({},{})".format(
+                        handle, args_dict[ARGS], args_dict[KWARGS]
+                    )
+                )
 
         result = None
         try:
@@ -1001,8 +1116,7 @@ class BridgeConn(object):
 
     @stats_hit
     def remote_get_type(self, handle):
-        self.logger.debug(
-            "remote_get_type {}".format(handle))
+        self.logger.debug("remote_get_type {}".format(handle))
         command_dict = {CMD: TYPE, ARGS: {HANDLE: handle}}
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
@@ -1023,15 +1137,22 @@ class BridgeConn(object):
 
     @stats_hit
     def remote_create_type(self, name, bases, dct):
-        self.logger.debug(
-            "remote_create_type {}, {}, {}".format(name, bases, dct))
-        command_dict = {CMD: CREATE_TYPE, ARGS: {NAME: name, BASES: self.serialize_to_dict(
-            bases), DICT: self.serialize_to_dict(dct)}}
+        self.logger.debug("remote_create_type {}, {}, {}".format(name, bases, dct))
+        command_dict = {
+            CMD: CREATE_TYPE,
+            ARGS: {
+                NAME: name,
+                BASES: self.serialize_to_dict(bases),
+                DICT: self.serialize_to_dict(dct),
+            },
+        }
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
     @stats_hit
     def local_create_type(self, args_dict):
-        name = str(args_dict[NAME])  # type name can't be unicode string in python2 - force to string
+        name = str(
+            args_dict[NAME]
+        )  # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
         dct = self.deserialize_from_dict(args_dict[DICT])
 
@@ -1040,11 +1161,20 @@ class BridgeConn(object):
                 # we want to get log the deserialized values, because they're useful.
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
-                self.logger.debug("local_create_type {}, {}, {}".format(name, bases, dct))
-            except Exception as e:
-                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
                 self.logger.debug(
-                    "Falling back:\n\tlocal_create_type {}, {}, {}".format(name, args_dict[BASES], args_dict[DICT]))
+                    "local_create_type {}, {}, {}".format(name, bases, dct)
+                )
+            except Exception as e:
+                self.logger.debug(
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug(
+                    "Falling back:\n\tlocal_create_type {}, {}, {}".format(
+                        name, args_dict[BASES], args_dict[DICT]
+                    )
+                )
 
         result = None
 
@@ -1074,8 +1204,9 @@ class BridgeConn(object):
 
     @stats_hit
     def remote_isinstance(self, test_object, class_or_tuple):
-        self.logger.debug("remote_isinstance({}, {})".format(
-            test_object, class_or_tuple))
+        self.logger.debug(
+            "remote_isinstance({}, {})".format(test_object, class_or_tuple)
+        )
 
         check_class_tuple = None
         # if we're not checking against a tuple, force it into one
@@ -1084,15 +1215,20 @@ class BridgeConn(object):
             if not isinstance(class_or_tuple, tuple):
                 # it's not :X
                 raise Exception(
-                    "Can't use remote_isinstance on a non-bridged class: {}".format(class_or_tuple))
+                    "Can't use remote_isinstance on a non-bridged class: {}".format(
+                        class_or_tuple
+                    )
+                )
             else:
                 check_class_tuple = class_or_tuple
         else:
             # single bridged, just wrap in a tuple
             check_class_tuple = (class_or_tuple,)
 
-        command_dict = {CMD: ISINSTANCE, ARGS: self.serialize_to_dict(
-            {OBJ: test_object, TUPLE: check_class_tuple})}
+        command_dict = {
+            CMD: ISINSTANCE,
+            ARGS: self.serialize_to_dict({OBJ: test_object, TUPLE: check_class_tuple}),
+        }
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
     @stats_hit
@@ -1106,22 +1242,30 @@ class BridgeConn(object):
                 # we want to get log the deserialized values, because they're useful.
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
-                self.logger.debug("local_isinstance({},{})".format(
-                    test_object, check_class_tuple))
-            except Exception as e:
-                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
                 self.logger.debug(
-                    "Falling back:\n\tlocal_isinstance({})".format(args_dict))
+                    "local_isinstance({},{})".format(test_object, check_class_tuple)
+                )
+            except Exception as e:
+                self.logger.debug(
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug(
+                    "Falling back:\n\tlocal_isinstance({})".format(args_dict)
+                )
 
         # make sure every element is a local object on this side
         if _is_bridged_object(test_object):
             raise Exception(
-                "Can't use local_isinstance on a bridged object: {}".format(test_object))
+                "Can't use local_isinstance on a bridged object: {}".format(test_object)
+            )
 
         for clazz in check_class_tuple:
             if _is_bridged_object(clazz):
                 raise Exception(
-                    "Can't use local_isinstance on a bridged class: {}".format(clazz))
+                    "Can't use local_isinstance on a bridged class: {}".format(clazz)
+                )
 
         return isinstance(test_object, check_class_tuple)
 
@@ -1129,8 +1273,10 @@ class BridgeConn(object):
     def remote_eval(self, eval_string, timeout_override=None, **kwargs):
         self.logger.debug("remote_eval({}, {})".format(eval_string, kwargs))
 
-        command_dict = {CMD: EVAL, ARGS: self.serialize_to_dict(
-            {EXPR: eval_string, KWARGS: kwargs})}
+        command_dict = {
+            CMD: EVAL,
+            ARGS: self.serialize_to_dict({EXPR: eval_string, KWARGS: kwargs}),
+        }
         # Remote eval commands might take a while, so override the timeout value, factor 100 is arbitrary unless an override specified by caller
         if timeout_override is None:
             timeout_override = self.response_timeout * 100
@@ -1151,22 +1297,27 @@ class BridgeConn(object):
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_eval({},{})".format(args[EXPR], args[KWARGS]))
             except Exception as e:
-                self.logger.debug("Failed to log deserialized arguments: {}\n{}".format(e, traceback.format_exc()))
                 self.logger.debug(
-                    "Falling back:\n\local_eval {}".format(args_dict))
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug("Falling back:\n\local_eval {}".format(args_dict))
 
         try:
             """ the import __main__ trick allows accessing all the variables that the bridge imports, 
             so evals will run within the global context of what started the bridge, and the arguments 
             supplied as kwargs will override that """
             eval_expr = args[EXPR]
-            eval_globals = importlib.import_module('__main__').__dict__
+            eval_globals = importlib.import_module("__main__").__dict__
             eval_locals = args[KWARGS]
             # do the eval, or defer to the hook if we've registered one
             if self.local_eval_hook is None:
                 result = eval(eval_expr, eval_globals, eval_locals)
             else:
-                result = self.local_eval_hook(self, eval_expr, eval_globals, eval_locals)
+                result = self.local_eval_hook(
+                    self, eval_expr, eval_globals, eval_locals
+                )
             self.logger.debug("local_eval: Finished evaluating")
         except Exception as e:
             result = e
@@ -1196,10 +1347,12 @@ class BridgeConn(object):
         return {SHUTDOWN: True}
 
     def handle_command(self, message_dict, want_response=True):
-        response_dict = {VERSION: COMMS_VERSION_4,
-                         ID: message_dict[ID],
-                         TYPE: RESULT,
-                         RESULT: {}}
+        response_dict = {
+            VERSION: COMMS_VERSION_4,
+            ID: message_dict[ID],
+            TYPE: RESULT,
+            RESULT: {},
+        }
 
         command_dict = message_dict[CMD]
 
@@ -1228,7 +1381,7 @@ class BridgeConn(object):
             elif command_dict[CMD] == SHUTDOWN:
                 result = self.local_shutdown()
 
-            if want_response: # only serialize if we want a response
+            if want_response:  # only serialize if we want a response
                 response_dict[RESULT] = self.serialize_to_dict(result)
 
         if want_response:
@@ -1243,7 +1396,15 @@ class BridgeConn(object):
         type_name = bridged_obj_dict[TYPE]
 
         # short circuit - any function-like thing, as well as any type (or java.lang.Class) becomes a BridgedCallable (need to invoke types/classes, so they're callable)
-        if type_name in ["type", "java.lang.Class", "function", "builtin_function_or_method", "instancemethod", "method_descriptor", "wrapper_descriptor"]:
+        if type_name in [
+            "type",
+            "java.lang.Class",
+            "function",
+            "builtin_function_or_method",
+            "instancemethod",
+            "method_descriptor",
+            "wrapper_descriptor",
+        ]:
             return BridgedCallable
         elif type_name in ["module", "javapackage"]:
             return BridgedModule
@@ -1265,18 +1426,26 @@ class BridgeConn(object):
 
         # handle a python2/3 compatibility issue - 3 uses truediv for /, 2 uses div unless you've imported
         # __future__.division. Allow falling back to __div__ if __truediv__ requested but not present
-        if "__div__" in remote_type._bridge_attrs and "__truediv__" not in remote_type._bridge_attrs:
+        if (
+            "__div__" in remote_type._bridge_attrs
+            and "__truediv__" not in remote_type._bridge_attrs
+        ):
             class_dict["__truediv__"] = remote_type._bridged_get("__div__")
 
         # create the bases - any class level method which requires special implementation needs to add the relevant type
         bases = (BridgedObject,)
 
         if callable:
-            bases = (BridgedCallable, )
-        elif "__next__" in remote_type._bridge_attrs or "next" in remote_type._bridge_attrs:
-            bases = (BridgedIterator, )
+            bases = (BridgedCallable,)
+        elif (
+            "__next__" in remote_type._bridge_attrs
+            or "next" in remote_type._bridge_attrs
+        ):
+            bases = (BridgedIterator,)
 
-        local_type = type(str("_bridged_" + type_name), bases, class_dict)  # str to force it to non-unicode in py2
+        local_type = type(
+            str("_bridged_" + type_name), bases, class_dict
+        )  # str to force it to non-unicode in py2
         self.cached_bridge_types[type_name] = local_type
 
         return local_type
@@ -1296,23 +1465,34 @@ class BridgeConn(object):
             stats = self.stats.copy()
 
         return stats
-        
+
     @stats_hit
     def add_response(self, msg_dict):
         # Just a wrapper to allow us to record this stat
         self.response_mgr.add_response(msg_dict)
 
 
-class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClient share a class
+class BridgeServer(
+    threading.Thread
+):  # TODO - have BridgeServer and BridgeClient share a class
     """ Python2Python RPC bridge server 
 
         Like a thread, so call run() to run directly, or start() to run on a background thread
     """
+
     is_serving = False
     local_call_hook = None
     local_eval_hook = None
 
-    def __init__(self, server_host=DEFAULT_HOST, server_port=0, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, local_call_hook=None, local_eval_hook=None):
+    def __init__(
+        self,
+        server_host=DEFAULT_HOST,
+        server_port=0,
+        loglevel=None,
+        response_timeout=DEFAULT_RESPONSE_TIMEOUT,
+        local_call_hook=None,
+        local_eval_hook=None,
+    ):
         """ Set up the bridge.
 
             server_host/port: host/port to listen on to serve requests. If not specified, defaults to 127.0.0.1:0 (random port - use get_server_info() to find out where it's serving)
@@ -1325,7 +1505,8 @@ class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClie
 
         # init the server
         self.server = ThreadingTCPServer(
-            (server_host, server_port), BridgeCommandHandler)
+            (server_host, server_port), BridgeCommandHandler
+        )
         # the server needs to be able to get back to the bridge to handle commands, but we don't want that reference keeping the bridge alive
         self.server.bridge = weakref.proxy(self)
         self.server.timeout = 1
@@ -1334,7 +1515,7 @@ class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClie
         logging.basicConfig()
         self.logger = logging.getLogger(__name__)
         if loglevel is None:  # we don't want any logging - ignore everything
-            loglevel = logging.CRITICAL+1
+            loglevel = logging.CRITICAL + 1
 
         self.logger.setLevel(loglevel)
         self.response_timeout = response_timeout
@@ -1353,8 +1534,14 @@ class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClie
         return self.server.socket.getsockname()
 
     def run(self):
-        self.logger.info("serving! (jfx_bridge v{}, Python {}.{}.{})".format(
-            __version__, sys.version_info.major, sys.version_info.minor, sys.version_info.micro))
+        self.logger.info(
+            "serving! (jfx_bridge v{}, Python {}.{}.{})".format(
+                __version__,
+                sys.version_info.major,
+                sys.version_info.minor,
+                sys.version_info.micro,
+            )
+        )
         self.is_serving = True
         self.server.serve_forever()
         self.logger.info("stopped serving")
@@ -1377,7 +1564,15 @@ class BridgeClient(object):
     local_eval_hook = None
     _bridge = None
 
-    def __init__(self, connect_to_host=DEFAULT_HOST, connect_to_port=DEFAULT_SERVER_PORT, loglevel=None, response_timeout=DEFAULT_RESPONSE_TIMEOUT, hook_import=False, record_stats=False):
+    def __init__(
+        self,
+        connect_to_host=DEFAULT_HOST,
+        connect_to_port=DEFAULT_SERVER_PORT,
+        loglevel=None,
+        response_timeout=DEFAULT_RESPONSE_TIMEOUT,
+        hook_import=False,
+        record_stats=False,
+    ):
         """ Set up the bridge client
             connect_to_host/port - host/port to connect to run commands. 
             loglevel - what messages to log (e.g., logging.INFO, logging.DEBUG)
@@ -1387,12 +1582,18 @@ class BridgeClient(object):
         logging.basicConfig()
         self.logger = logging.getLogger(__name__)
         if loglevel is None:  # we don't want any logging - ignore everything
-            loglevel = logging.CRITICAL+1
+            loglevel = logging.CRITICAL + 1
 
         self.logger.setLevel(loglevel)
 
         self.client = BridgeConn(
-            self, sock=None, connect_to_host=connect_to_host, connect_to_port=connect_to_port, response_timeout=response_timeout, record_stats=record_stats)
+            self,
+            sock=None,
+            connect_to_host=connect_to_host,
+            connect_to_port=connect_to_port,
+            response_timeout=response_timeout,
+            record_stats=record_stats,
+        )
 
         if hook_import:
             # add a path_hook for this bridge
@@ -1411,7 +1612,9 @@ class BridgeClient(object):
             Allow access, but warn about it
         """
         warnings.warn(
-            "Using <external_bridge>.bridge to get to remote_import/eval/shutdown is deprecated - just do <external_bridge>.remote_import/etc.", DeprecationWarning)
+            "Using <external_bridge>.bridge to get to remote_import/eval/shutdown is deprecated - just do <external_bridge>.remote_import/etc.",
+            DeprecationWarning,
+        )
         return self._bridge
 
     def remote_import(self, module_name):
@@ -1428,7 +1631,9 @@ class BridgeClient(object):
 
         To provide arguments into the eval context, supply them as keyword arguments with names matching the names used in the eval string (e.g., remote_eval("x+1", x=2))
         """
-        return self.client.remote_eval(eval_string, timeout_override=timeout_override, **kwargs)
+        return self.client.remote_eval(
+            eval_string, timeout_override=timeout_override, **kwargs
+        )
 
     def remote_shutdown(self):
         return self.client.remote_shutdown()
@@ -1476,14 +1681,18 @@ def bridged_isinstance(test_object, class_or_tuple):
         # yes - we need to handle.
         # remove any non-bridged classes in the tuple
         new_tuple = tuple(
-            clazz for clazz in class_or_tuple if _is_bridged_object(clazz))
+            clazz for clazz in class_or_tuple if _is_bridged_object(clazz)
+        )
 
-        if new_tuple:  # make sure there's still some things left to check - otherwise, just return false without shooting it over the bridge
+        if (
+            new_tuple
+        ):  # make sure there's still some things left to check - otherwise, just return false without shooting it over the bridge
             result = test_object._bridge_isinstance(new_tuple)
     else:
         # test_object isn't bridged - remove any bridged classes in the tuple and palm it off to isinstance
         new_tuple = tuple(
-            clazz for clazz in class_or_tuple if not _is_bridged_object(clazz))
+            clazz for clazz in class_or_tuple if not _is_bridged_object(clazz)
+        )
 
         result = builtin_isinstance(test_object, new_tuple)
 
@@ -1492,6 +1701,7 @@ def bridged_isinstance(test_object, class_or_tuple):
 
 class BridgedObject(object):
     """ An object you can only interact with on the opposite side of a bridge """
+
     _bridge_conn = None
     _bridge_handle = None
     _bridge_type = None
@@ -1501,13 +1711,23 @@ class BridgedObject(object):
 
     # list of methods which we don't bridge, but need to have specific names (so we can't use the _bridge prefix for them)
     # TODO decorator to mark a function as local, don't bridge it - then have it automatically fill this out (also needs to work for subclasses)
-    _LOCAL_METHODS = ["__del__", "__str__", "__repr__", "__dir__", "__bool__", "__nonzero__", "getdoc"]
+    _LOCAL_METHODS = [
+        "__del__",
+        "__str__",
+        "__repr__",
+        "__dir__",
+        "__bool__",
+        "__nonzero__",
+        "getdoc",
+    ]
 
     # list of attrs that we don't want to waste bridge calls on
-    _DONT_BRIDGE = ["__mro_entries__",  # ignore mro entries - only being called if we're creating a class based off a bridged object
-                    # associated with ipython
-                    "_ipython_canary_method_should_not_exist_",
-                    "__sizeof__"]
+    _DONT_BRIDGE = [
+        "__mro_entries__",  # ignore mro entries - only being called if we're creating a class based off a bridged object
+        # associated with ipython
+        "_ipython_canary_method_should_not_exist_",
+        "__sizeof__",
+    ]
 
     # list of attrs that we don't want to waste bridge calls on, unless they really are defined in the bridged object
     _DONT_BRIDGE_UNLESS_IN_ATTRS = [
@@ -1520,7 +1740,8 @@ class BridgedObject(object):
         "__signature__",
         "__annotations__",
         "__objclass__",
-        "__wrapped__"]
+        "__wrapped__",
+    ]
 
     def __init__(self, bridge_conn, obj_dict):
         self._bridge_conn = bridge_conn
@@ -1531,7 +1752,16 @@ class BridgedObject(object):
         self._bridge_overrides = dict()
 
     def __getattribute__(self, attr):
-        if attr.startswith(BRIDGE_PREFIX) or attr == "__class__" or attr in BridgedObject._DONT_BRIDGE or attr in BridgedObject._LOCAL_METHODS or (attr in BridgedObject._DONT_BRIDGE_UNLESS_IN_ATTRS and attr not in self._bridge_attrs):
+        if (
+            attr.startswith(BRIDGE_PREFIX)
+            or attr == "__class__"
+            or attr in BridgedObject._DONT_BRIDGE
+            or attr in BridgedObject._LOCAL_METHODS
+            or (
+                attr in BridgedObject._DONT_BRIDGE_UNLESS_IN_ATTRS
+                and attr not in self._bridge_attrs
+            )
+        ):
             # we don't want to bridge this for one reason or another (including it may not exist on the other end),
             # so get the local version, or accept the AttributeError that we'll get if it's not present locally.
             result = object.__getattribute__(self, attr)
@@ -1598,24 +1828,39 @@ class BridgedObject(object):
                 for clazz in bridged_class_or_tuple:
                     if not _is_bridged_object(clazz):
                         raise Exception(
-                            "Can't use _bridge_isinstance with non-bridged class {}".format(clazz))
+                            "Can't use _bridge_isinstance with non-bridged class {}".format(
+                                clazz
+                            )
+                        )
             else:
                 # nope :x
                 raise Exception(
-                    "Can't use _bridge_isinstance with non-bridged class {}".format(bridged_class_or_tuple))
+                    "Can't use _bridge_isinstance with non-bridged class {}".format(
+                        bridged_class_or_tuple
+                    )
+                )
 
         # cool, arguments are valid
         return self._bridge_conn.remote_isinstance(self, bridged_class_or_tuple)
 
     def __del__(self):
-        if self._bridge_conn is not None:  # only need to del if this was properly init'd
+        if (
+            self._bridge_conn is not None
+        ):  # only need to del if this was properly init'd
             self._bridge_conn.remote_del(self._bridge_handle)
 
     def __repr__(self):
-        return "<{}('{}', type={}, handle={})>".format(type(self).__name__, self._bridge_repr, self._bridge_type, self._bridge_handle)
+        return "<{}('{}', type={}, handle={})>".format(
+            type(self).__name__,
+            self._bridge_repr,
+            self._bridge_type,
+            self._bridge_handle,
+        )
 
     def __dir__(self):
-        return dir(super(type(self))) + (self._bridge_attrs if self._bridge_attrs else [])
+        return dir(super(type(self))) + (
+            self._bridge_attrs if self._bridge_attrs else []
+        )
 
     def __bool__(self):
         # py3 vs 2 - __bool__ vs __nonzero__
@@ -1660,17 +1905,19 @@ class BridgedCallable(BridgedObject):
             if "_bridge_nonreturn" in self._bridge_attrs:
                 # if the attribute is present (even if set to False/None), assume it's nonreturning. Shouldn't be present on anything else
                 self._bridge_nonreturn = True
-            
+
     def __call__(self, *args, **kwargs):
         # if we've marked this callable with _bridge_nonreturn, don't wait for a response
         if getattr(self, "_bridge_nonreturn", False):
             return self._bridge_call_nonreturn(*args, **kwargs)
-    
+
         return self._bridge_conn.remote_call(self._bridge_handle, *args, **kwargs)
-        
+
     def _bridge_call_nonreturn(self, *args, **kwargs):
         """ Explicitly invoke the call without expecting a response """
-        return self._bridge_conn.remote_call_nonreturn(self._bridge_handle, *args, **kwargs)
+        return self._bridge_conn.remote_call_nonreturn(
+            self._bridge_handle, *args, **kwargs
+        )
 
     def __get__(self, instance, owner):
         """ Implement descriptor get so that we can bind the BridgedCallable to an object if it's defined as part of a class 
@@ -1683,7 +1930,9 @@ class BridgedIterator(BridgedObject):
     def __next__(self):
         # py2 vs 3 - next vs __next__
         try:
-            return self._bridged_get("__next__" if "__next__" in self._bridge_attrs else "next")()
+            return self._bridged_get(
+                "__next__" if "__next__" in self._bridge_attrs else "next"
+            )()
         except BridgeException as e:
             # we expect the StopIteration exception - check to see if that's what we got, and if so, raise locally
             if e.args[1]._bridge_type.endswith("StopIteration"):
@@ -1744,7 +1993,9 @@ class BridgedModuleFinderLoader:
             return self
         except BridgeException as be:
             exception_type = be.args[1]._bridge_type
-            if exception_type.endswith("ModuleNotFoundError") or exception_type.endswith("ImportError"):
+            if exception_type.endswith(
+                "ModuleNotFoundError"
+            ) or exception_type.endswith("ImportError"):
                 # ModuleNotFoundError in py3, just ImportError in py2
                 # module doesn't exist remotely, we can't help - return None
                 return None
@@ -1784,6 +2035,7 @@ class BridgedModuleFinderLoader:
 
         # hand back the module
         return target
+
 
 def nonreturn(func):
     """ Decorator to simplying marking a function as nonreturning for the bridge """

@@ -14,16 +14,24 @@ import functools
 from . import bridge
 
 if sys.version_info[0] == 2:
-    from socket import error as ConnectionRefusedError  # ConnectionRefusedError not defined in python2, this is next closest thing
+    from socket import (
+        error as ConnectionRefusedError,
+    )  # ConnectionRefusedError not defined in python2, this is next closest thing
+
 
 def print_stats(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         start_stats = self.test_bridge.get_stats()
         func(self, *args, **kwargs)
-        print("\n{}:\n\t{}\n".format(func.__name__, self.test_bridge.get_stats()-start_stats))
+        print(
+            "\n{}:\n\t{}\n".format(
+                func.__name__, self.test_bridge.get_stats() - start_stats
+            )
+        )
 
     return wrapper
+
 
 class TestBridge(unittest.TestCase):
     """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT """
@@ -32,13 +40,18 @@ class TestBridge(unittest.TestCase):
     def setUpClass(cls):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
-            connect_to_port=port, loglevel=logging.DEBUG, record_stats=True)
+            connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
+        )
         cls.total_start_stats = cls.test_bridge.get_stats()
-        
+
     @classmethod
     def tearDownClass(cls):
         total_stats = cls.test_bridge.get_stats()
-        print("\n{}:\n\t{}\n".format("TestBridge Total", cls.test_bridge.get_stats()-cls.total_start_stats))
+        print(
+            "\n{}:\n\t{}\n".format(
+                "TestBridge Total", cls.test_bridge.get_stats() - cls.total_start_stats
+            )
+        )
 
     @print_stats
     def test_import(self):
@@ -166,8 +179,20 @@ class TestBridge(unittest.TestCase):
 
         # assemble a list of different types
         # Note: we include False now to detect failure to correctly unpack "False" strings into bools
-        test_list = [1, 0xFFFFFFFF, True, False, "string", "unicode_string🐉🔍",
-                     (1, 2, 3), [4, 5, 6], {7: 8, 9: 10}, uuid.uuid4(), pow, 1.5]
+        test_list = [
+            1,
+            0xFFFFFFFF,
+            True,
+            False,
+            "string",
+            "unicode_string🐉🔍",
+            (1, 2, 3),
+            [4, 5, 6],
+            {7: 8, 9: 10},
+            uuid.uuid4(),
+            pow,
+            1.5,
+        ]
 
         # gross hack - race where remote objects are being deleted after the remote list is created,
         # but before the response makes it back (so remote del commands arrive first and nuke the
@@ -192,8 +217,10 @@ class TestBridge(unittest.TestCase):
         created_list = remote_list(test_list)
 
         # check it's the same, either as a byte or normal string
-        self.assertTrue(created_list[0] == test_list[0]
-                        or created_list[0] == test_list[0].decode("utf-8"))
+        self.assertTrue(
+            created_list[0] == test_list[0]
+            or created_list[0] == test_list[0].decode("utf-8")
+        )
 
     @print_stats
     def test_serialize_deserialize_bridge_object(self):
@@ -217,6 +244,7 @@ class TestBridge(unittest.TestCase):
     @print_stats
     def test_callback(self):
         """ Test we correctly handle calling back to here from across the bridge """
+
         def sort_fn(val):
             return len(val)
 
@@ -285,45 +313,50 @@ class TestBridge(unittest.TestCase):
         self.assertFalse(bridge.bridged_isinstance(local_obj, float))
 
         # local obj, fully local tuple
-        self.assertTrue(bridge.bridged_isinstance(
-            local_obj, (float, local_class)))
+        self.assertTrue(bridge.bridged_isinstance(local_obj, (float, local_class)))
         self.assertFalse(bridge.bridged_isinstance(local_obj, (float, int)))
 
         # local obj, mixed tuple
-        self.assertTrue(bridge.bridged_isinstance(
-            local_obj, (remote_class, float, local_class)))
-        self.assertFalse(bridge.bridged_isinstance(
-            local_obj, (remote_float, float, int)))
+        self.assertTrue(
+            bridge.bridged_isinstance(local_obj, (remote_class, float, local_class))
+        )
+        self.assertFalse(
+            bridge.bridged_isinstance(local_obj, (remote_float, float, int))
+        )
 
         # local obj, remote class
         self.assertFalse(bridge.bridged_isinstance(local_obj, remote_class))
 
         # local obj, fully remote tuple
-        self.assertFalse(bridge.bridged_isinstance(
-            local_obj, (remote_float, remote_class)))
+        self.assertFalse(
+            bridge.bridged_isinstance(local_obj, (remote_float, remote_class))
+        )
 
         # remote obj, local class
         self.assertFalse(bridge.bridged_isinstance(remote_obj, local_class))
 
         # remote obj, fully local tuple
-        self.assertFalse(bridge.bridged_isinstance(
-            remote_obj, (float, local_class)))
+        self.assertFalse(bridge.bridged_isinstance(remote_obj, (float, local_class)))
 
         # remote obj, mixed tuple
-        self.assertTrue(bridge.bridged_isinstance(
-            remote_obj, (remote_class, float, local_class)))
-        self.assertFalse(bridge.bridged_isinstance(
-            remote_obj, (remote_float, float, int)))
+        self.assertTrue(
+            bridge.bridged_isinstance(remote_obj, (remote_class, float, local_class))
+        )
+        self.assertFalse(
+            bridge.bridged_isinstance(remote_obj, (remote_float, float, int))
+        )
 
         # remote obj, remote class
         self.assertTrue(bridge.bridged_isinstance(remote_obj, remote_class))
         self.assertFalse(bridge.bridged_isinstance(remote_obj, remote_float))
 
         # remote obj, fully remote tuple
-        self.assertTrue(bridge.bridged_isinstance(
-            remote_obj, (remote_float, remote_class)))
-        self.assertFalse(bridge.bridged_isinstance(
-            remote_obj, (remote_float, remote_int)))
+        self.assertTrue(
+            bridge.bridged_isinstance(remote_obj, (remote_float, remote_class))
+        )
+        self.assertFalse(
+            bridge.bridged_isinstance(remote_obj, (remote_float, remote_int))
+        )
 
     @print_stats
     def test_bridged_get_type(self):
@@ -332,7 +365,9 @@ class TestBridge(unittest.TestCase):
         remote_obj = remote_uuid.uuid4()
 
         self.assertTrue("<class 'uuid.UUID'>" in str(remote_obj._bridged_get_type()))
-        self.assertTrue("'type'" in str(remote_obj._bridged_get_type()._bridged_get_type()))
+        self.assertTrue(
+            "'type'" in str(remote_obj._bridged_get_type()._bridged_get_type())
+        )
 
     @print_stats
     def test_remote_eval(self):
@@ -353,10 +388,14 @@ class TestBridge(unittest.TestCase):
 
         # check that it times out if not enough time allocated
         with self.assertRaises(bridge.BridgeTimeoutException):
-            self.test_bridge.remote_eval("sleep(2)", timeout_override=1, sleep=remote_time.sleep)
+            self.test_bridge.remote_eval(
+                "sleep(2)", timeout_override=1, sleep=remote_time.sleep
+            )
 
         # check that it works with enough time
-        self.test_bridge.remote_eval("sleep(2)", timeout_override=3, sleep=remote_time.sleep)
+        self.test_bridge.remote_eval(
+            "sleep(2)", timeout_override=3, sleep=remote_time.sleep
+        )
 
     @print_stats
     def test_operators(self):
@@ -368,7 +407,7 @@ class TestBridge(unittest.TestCase):
         self.assertTrue(td1 < td2)
         self.assertTrue(td2 >= td1)
         self.assertEquals(remote_datetime.timedelta(3), td1 + td2)
-        self.assertEquals(td1, td2//2)  # we use floordiv here, truediv tested below
+        self.assertEquals(td1, td2 // 2)  # we use floordiv here, truediv tested below
 
     @print_stats
     def test_truediv(self):
@@ -377,7 +416,7 @@ class TestBridge(unittest.TestCase):
         remote_datetime = self.test_bridge.remote_import("datetime")
         td1 = remote_datetime.timedelta(1)
         td2 = remote_datetime.timedelta(2)
-        self.assertEquals(td1, td2/2)
+        self.assertEquals(td1, td2 / 2)
 
     @print_stats
     def test_len(self):
@@ -406,6 +445,7 @@ class TestBridge(unittest.TestCase):
 
             def __bool__(self):
                 return self.y == 2
+
             __nonzero__ = __bool__
 
         f = x(3)
@@ -425,32 +465,36 @@ class TestBridge(unittest.TestCase):
             self.assertEquals(bytes(dq), "deque([1])")
         else:
             self.assertEquals(bytes(dq), b"\x01")
-            
+
     @print_stats
     def test_remote_inheritance(self):
         """ check that we can inherit from a remote type """
         remote_collections = self.test_bridge.remote_import("collections")
         remote_deque = remote_collections.deque
-        
+
         class new_deque(remote_deque):
             def __init__(self, test):
                 remote_deque.__init__(self)
                 self.test = test
                 self.called = False
-                
+
             def append(self, x):
                 remote_deque.append(self, x)
                 self.called = True
-                
+
         nd = new_deque("test")
         self.assertEquals(nd.test, "test")
-        
+
         nd.append(1)
         self.assertTrue(nd.called)
         self.assertEquals(nd.pop(), 1)
-        
-        self.assertTrue(not isinstance(nd.append, bridge.BridgedCallable), "Expected local implementation to stay local - is actually: " + str(type(nd.append)))
-        
+
+        self.assertTrue(
+            not isinstance(nd.append, bridge.BridgedCallable),
+            "Expected local implementation to stay local - is actually: "
+            + str(type(nd.append)),
+        )
+
     @print_stats
     def test_nonreturn(self):
         """ Test we can call a bridged function as non-returning
@@ -458,7 +502,7 @@ class TestBridge(unittest.TestCase):
         remote_time = self.test_bridge.remote_import("time")
         # would expect this to timeout - but instead should send off and keep going
         remote_time.sleep._bridge_call_nonreturn(10)
-        
+
     @print_stats
     def test_nonreturn_doesnt_respond(self):
         """ Test that a nonreturn call doesn't cause a response to show up
@@ -474,8 +518,10 @@ class TestBridge(unittest.TestCase):
         # let any responses in flight trickle home
         time.sleep(1)
         # check that there aren't more responses
-        self.assertTrue(response_count >= len(self.test_bridge.client.response_mgr.response_dict))
-        
+        self.assertTrue(
+            response_count >= len(self.test_bridge.client.response_mgr.response_dict)
+        )
+
     @print_stats
     def test_nonreturn_marker_remote(self):
         """ Test that a callable marked as nonreturn doesn't return when called normally
@@ -483,14 +529,15 @@ class TestBridge(unittest.TestCase):
         remote_main = self.test_bridge.remote_import("__main__")
         # would normally time out
         remote_main.nonreturn()
-        
+
     @print_stats
     def test_nonreturn_marker_local(self):
         """ Test that a callable marked as nonreturn doesn't return when called normally from the other side of the bridge
         """
+
         class Callback:
             called = False
-            
+
             @bridge.nonreturn
             def callback(self):
                 self.called = True
@@ -498,11 +545,12 @@ class TestBridge(unittest.TestCase):
                 time.sleep(10)
 
         c = Callback()
-        
+
         self.test_bridge.remote_eval("c.callback()", c=c, timeout_override=1)
         # pause to let the callback land
         time.sleep(1)
         self.assertTrue(c.called)
+
 
 class TestBridgeHookImport(unittest.TestCase):
     """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
@@ -511,28 +559,43 @@ class TestBridgeHookImport(unittest.TestCase):
     def setUpClass(cls):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
-            connect_to_port=port, loglevel=logging.DEBUG, hook_import=True, record_stats=True)
+            connect_to_port=port,
+            loglevel=logging.DEBUG,
+            hook_import=True,
+            record_stats=True,
+        )
 
     @print_stats
     def test_hook_import_top_level(self):
         """ Test that we handle import x syntax """
         import test_hook_import_top_level
+
         remote_name = str(test_hook_import_top_level)
-        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_top_level" in remote_name)
+        self.assertTrue(
+            "BridgedModule" in remote_name
+            and "test_hook_import_top_level" in remote_name
+        )
 
     @print_stats
     def test_hook_import_dotted(self):
         """ Test that we handle import x.y syntax """
         import test_hook_import_dotted.child
+
         remote_name = str(test_hook_import_dotted.child)
-        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_dotted.child" in remote_name)
+        self.assertTrue(
+            "BridgedModule" in remote_name
+            and "test_hook_import_dotted.child" in remote_name
+        )
 
     @print_stats
     def test_hook_import_from_syntax(self):
         """ Test that we handle from x import y syntax """
         from test_hook_import_from import run_server
+
         remote_name = str(run_server)
-        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
+        self.assertTrue(
+            "BridgedCallable" in remote_name and "run_server" in remote_name
+        )
 
     @print_stats
     def test_hook_import_nonexistent(self):
@@ -544,8 +607,11 @@ class TestBridgeHookImport(unittest.TestCase):
     def test_hook_import_as(self):
         """ Test that we don't break import x as y syntax """
         import test_hook_import_as as thia
+
         remote_name = str(thia)
-        self.assertTrue("BridgedModule" in remote_name and "test_hook_import_as" in remote_name)
+        self.assertTrue(
+            "BridgedModule" in remote_name and "test_hook_import_as" in remote_name
+        )
 
     @print_stats
     def test_hook_import_force_import(self):
@@ -559,6 +625,7 @@ class TestBridgeHookImport(unittest.TestCase):
             # make sure it's not already loaded remotely
             self.assertTrue("http" not in remote_sys.modules)
             import http
+
             remote_name = str(http)
             self.assertTrue("BridgedModule" in remote_name and "http" in remote_name)
 
@@ -567,8 +634,11 @@ class TestBridgeHookImport(unittest.TestCase):
             # make sure it's not already loaded remotely
             self.assertTrue("SimpleHTTPServer" not in remote_sys.modules)
             import SimpleHTTPServer
+
             remote_name = str(SimpleHTTPServer)
-            self.assertTrue("BridgedModule" in remote_name and "SimpleHTTPServer" in remote_name)
+            self.assertTrue(
+                "BridgedModule" in remote_name and "SimpleHTTPServer" in remote_name
+            )
 
         else:
             # same versions, can't think of anything useful to test load
@@ -579,18 +649,22 @@ class TestBridgeHookImport(unittest.TestCase):
         """ Make sure a local import is resolved locally, not pulled in remotely """
         self.assertTrue("ast" not in sys.modules)
         import ast
+
         name = str(ast)
         self.assertTrue("BridgedModule" not in name and "ast" in name)
-        
+
     @print_stats
     def test_hook_import_nonmodule(self):
         """ Test we can import nonmodules like modules (e.g., java classes from jython). But mostly so we can test 
             reimporting
         """
         import test_hook_import_nonmodule
+
         remote_name = str(test_hook_import_nonmodule)
-        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
-        
+        self.assertTrue(
+            "BridgedCallable" in remote_name and "run_server" in remote_name
+        )
+
 
 class TestBridgeHookImportReimport(unittest.TestCase):
     """ 
@@ -604,9 +678,13 @@ class TestBridgeHookImportReimport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
-        old_importer_index = len(sys.path)-1
+        old_importer_index = len(sys.path) - 1
         cls.test_bridge = bridge.BridgeClient(
-            connect_to_port=port, loglevel=logging.DEBUG, hook_import=True, record_stats=True)
+            connect_to_port=port,
+            loglevel=logging.DEBUG,
+            hook_import=True,
+            record_stats=True,
+        )
 
         # rearrange paths to make sure our importer gets called first
         # TODO once we get around to implementing cleaning up import hooks on client shutdown, this shouldn't be required
@@ -620,10 +698,14 @@ class TestBridgeHookImportReimport(unittest.TestCase):
         """ If this fails with old/unknown handle, __spec__ has been set by the old client """
         # clear out our old import
         del sys.modules["test_hook_import_nonmodule"]
-        
+
         import test_hook_import_nonmodule
+
         remote_name = str(test_hook_import_nonmodule)
-        self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
+        self.assertTrue(
+            "BridgedCallable" in remote_name and "run_server" in remote_name
+        )
+
 
 class TestBridgeZZZZZZZShutdown(unittest.TestCase):
     """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT. Needs to run last, nothing will work after this"""
@@ -632,7 +714,8 @@ class TestBridgeZZZZZZZShutdown(unittest.TestCase):
     def setUpClass(cls):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
-            connect_to_port=port, loglevel=logging.DEBUG, record_stats=True)
+            connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
+        )
 
     @print_stats
     def test_zzzzzz_shutdown(self):
@@ -646,6 +729,7 @@ class TestBridgeZZZZZZZShutdown(unittest.TestCase):
         # try to reconnect, should fail with connection refused
         with self.assertRaises(ConnectionRefusedError):
             fail_bridge = bridge.BridgeClient(
-                connect_to_port=bridge.DEFAULT_SERVER_PORT, loglevel=logging.DEBUG)
+                connect_to_port=bridge.DEFAULT_SERVER_PORT, loglevel=logging.DEBUG
+            )
 
             fail_bridge.remote_import("datetime")
