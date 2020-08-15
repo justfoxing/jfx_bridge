@@ -446,6 +446,14 @@ class TestBridge(unittest.TestCase):
         self.assertEquals(nd.pop(), 1)
         
         self.assertTrue(not isinstance(nd.append, bridge.BridgedCallable), "Expected local implementation to stay local - is actually: " + str(type(nd.append)))
+        
+    @print_stats
+    def test_nonreturn(self):
+        """ Test we can call a bridged function as non-returning
+        """
+        remote_time = self.test_bridge.remote_import("time")
+        # would expect this to timeout - but instead should send off and keep going
+        remote_time.sleep._bridge_call_nonreturn(10)
 
 
 class TestBridgeHookImport(unittest.TestCase):
@@ -534,6 +542,7 @@ class TestBridgeHookImport(unittest.TestCase):
         import test_hook_import_nonmodule
         remote_name = str(test_hook_import_nonmodule)
         self.assertTrue("BridgedCallable" in remote_name and "run_server" in remote_name)
+        
 
 class TestBridgeHookImportReimport(unittest.TestCase):
     """ 

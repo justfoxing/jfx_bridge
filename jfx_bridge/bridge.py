@@ -900,6 +900,19 @@ class BridgeConn(object):
                                           ARGS: serial_args, KWARGS: serial_kwargs}}
 
         return self.deserialize_from_dict(self.send_cmd(command_dict))
+        
+    @stats_hit
+    def remote_call_nonreturn(self, handle, *args, **kwargs):
+        """ As per remote_call, but without expecting a response """
+        self.logger.debug(
+            "remote_call_nonreturn: {}({},{})".format(handle, args, kwargs))
+
+        serial_args = self.serialize_to_dict(args)
+        serial_kwargs = self.serialize_to_dict(kwargs)
+        command_dict = {CMD: CALL, ARGS: {HANDLE: handle,
+                                          ARGS: serial_args, KWARGS: serial_kwargs}}
+
+        self.send_cmd(command_dict, get_response=False)
 
     @stats_hit
     def local_call(self, args_dict):
@@ -1630,6 +1643,10 @@ class BridgedCallable(BridgedObject):
 
     def __call__(self, *args, **kwargs):
         return self._bridge_conn.remote_call(self._bridge_handle, *args, **kwargs)
+        
+    def _bridge_call_nonreturn(self, *args, **kwargs):
+        """ Explicitly invoke the call without expecting a response """
+        return self._bridge_conn.remote_call_nonreturn(self._bridge_handle, *args, **kwargs)
 
     def __get__(self, instance, owner):
         """ Implement descriptor get so that we can bind the BridgedCallable to an object if it's defined as part of a class 
