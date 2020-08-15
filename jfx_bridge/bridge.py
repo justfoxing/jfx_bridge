@@ -152,12 +152,13 @@ class BridgeOperationException(Exception):
 class BridgeClosedException(Exception):
     """ The bridge has closed """
     pass
-    
+
+
 class BridgeTimeoutException(Exception):
     """ A command we tried to run across the bridge took too long. You might need to increase the response timeout, check the command isn't
         causing a deadlock, or make sure the network connection to the other end of the bridge is okay.
     """
-    pass    
+    pass
 
 
 def stats_hit(func):
@@ -169,9 +170,10 @@ def stats_hit(func):
         if self.stats is not None:
             self.stats.add_hit(func.__name__)
         return func(self, *args, **kwargs)
-        
+
     return wrapper
-    
+
+
 def stats_time(func):
     """ Decorate a function to record how long it takes to execute. Assumes the function is in a class with a stats attribute (can be set to None to
         disable stats recording     
@@ -181,42 +183,43 @@ def stats_time(func):
         start_time = time.time()
         return_val = func(self, *args, **kwargs)
         total_time = time.time() - start_time
-        
+
         if self.stats is not None:
             self.stats.add_time(func.__name__, total_time)
-        
+
         return return_val
-        
+
     return wrapper
+
 
 class Stats:
     """ Class to record the number of hits of particular points (e.g., function calls) and 
         times (e.g., execution times) for gathering statistics. 
     """
-        
+
     def __init__(self):
         self.lock = threading.Lock()
-        self.hits = dict() # name -> hit count
-        self.times = dict() # name -> (hit count, cumulative_time)
-        
+        self.hits = dict()  # name -> hit count
+        self.times = dict()  # name -> (hit count, cumulative_time)
+
     def add_hit(self, hit_name):
         with self.lock:
             hit_count = self.hits.get(hit_name, 0)
             self.hits[hit_name] = hit_count + 1
-            
+
     def add_time(self, time_name, time):
         with self.lock:
             hit_count, cumulative_time = self.times.get(time_name, (0, 0))
-            self.times[time_name] = (hit_count +1, cumulative_time + time)
-            
+            self.times[time_name] = (hit_count + 1, cumulative_time + time)
+
     def total_hits(self):
         total = 0
         with self.lock:
             for value in self.hits.values():
                 total += value
-                
+
         return total
-    
+
     def total_time(self):
         total_time_hits = 0
         total_time = 0
@@ -224,44 +227,45 @@ class Stats:
             for hits, cumulative_time in self.times.values():
                 total_time_hits += hits
                 total_time += cumulative_time
-                
+
         return (total_time_hits, total_time)
-            
+
     def __str__(self):
         return "Stats(total_hits={},hits={},total_time={},times={})".format(self.total_hits(), self.hits, self.total_time(), self.times)
-        
+
     def copy(self):
         """ Take a copy of the stats at the current time """
         copy_stats = Stats()
         with self.lock:
             copy_stats.hits = self.hits.copy()
             copy_stats.times = self.times.copy()
-        
+
         return copy_stats
-        
+
     def __sub__(self, other):
         if not isinstance(other, Stats):
             raise Exception("Can't subtract non-Stats object from a Stats object")
-            
+
         # take a copy of this stats, then subtract the other from the copy
         new_stats = self.copy()
-        
+
         # subtract the value of each key in other hits from the corresponding key in new_stats
         # if new_stats doesn't have the key, treat it as 0
         # nuke any values which end up as 0
-        for key,value in other.hits.items():
-            new_stats.hits[key] = new_stats.hits.get(key,0) - value
+        for key, value in other.hits.items():
+            new_stats.hits[key] = new_stats.hits.get(key, 0) - value
             if new_stats.hits[key] == 0:
                 del new_stats.hits[key]
-        
+
         # as above, but for times
-        for key,value in other.times.items():
-            hit_count, cumulative_time = new_stats.times.get(key,(0,0))
+        for key, value in other.times.items():
+            hit_count, cumulative_time = new_stats.times.get(key, (0, 0))
             new_stats.times[key] = (hit_count-value[0], cumulative_time-value[1])
             if new_stats.times[key][0] == 0:
                 del new_stats.times[key]
-            
+
         return new_stats
+
 
 SIZE_FORMAT = "!I"
 
@@ -527,7 +531,7 @@ class BridgeResponse(object):
 
     def __init__(self, response_id):
         self.event = threading.Event()
-        self.response_id = response_id # just for tracking, so we can report it in timeout exception if needed
+        self.response_id = response_id  # just for tracking, so we can report it in timeout exception if needed
 
     def set(self, response):
         """ store response data, and let anyone waiting know it's ready """
@@ -602,7 +606,7 @@ class BridgeConn(object):
         """ Set up the bridge connection - only instantiates a connection as needed """
         self.host = connect_to_host
         self.port = connect_to_port
-    
+
         # get a reference to the bridge's logger for the connection
         self.logger = bridge.logger
 
@@ -622,11 +626,11 @@ class BridgeConn(object):
         # we'll keep all the types forever (including handles to bridgedcallables in them) because types are super-likely
         # to be reused regularly, and we don't want to keep deleting them and then having to recreate them all the time.
         self.cached_bridge_types = dict()
-        
+
         # if the bridge has requested a local_call_hook/local_eval_hook, record that
         self.local_call_hook = bridge.local_call_hook
         self.local_eval_hook = bridge.local_eval_hook
-        
+
         if record_stats:
             self.stats = Stats()
 
@@ -688,7 +692,8 @@ class BridgeConn(object):
         # note: this needs to come before int, because apparently bools are instances of int (but not vice versa)
         if isinstance(data, bool):
             serialized_dict = {TYPE: BOOL, VALUE: str(data)}
-        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE):  # don't treat py3 enums as ints - pass them as objects
+        # don't treat py3 enums as ints - pass them as objects
+        elif isinstance(data, INTEGER_TYPES) and not isinstance(data, ENUM_TYPE):
             serialized_dict = {TYPE: INT, VALUE: str(data)}
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
@@ -726,13 +731,13 @@ class BridgeConn(object):
             # to get remote called back here where we'll issue a call to the original function, we'll send it with the partial's details so
             # it can be reconstructed on the other side (0 round-trips instead of 2 round-trips)
             # TODO do we have to worry about data.func being from a different bridge connection?
-            serialized_dict = {TYPE: PARTIAL, VALUE: self.serialize_to_dict(data.func), ARGS: self.serialize_to_dict(data.args), KWARGS: self.serialize_to_dict(data.keywords)}
+            serialized_dict = {TYPE: PARTIAL, VALUE: self.serialize_to_dict(
+                data.func), ARGS: self.serialize_to_dict(data.args), KWARGS: self.serialize_to_dict(data.keywords)}
         else:
             # it's an object. assign a reference
             obj_type = CALLABLE_OBJ if callable(data) else OBJ
             serialized_dict = {TYPE: obj_type,
                                VALUE: self.create_handle(data).to_dict()}
-        
 
         return serialized_dict
 
@@ -760,7 +765,8 @@ class BridgeConn(object):
 
             return result
         elif serial_dict[TYPE] == EXCEPTION:
-            raise BridgeException(self.deserialize_from_dict(serial_dict[MESSAGE]), self.build_bridged_object(serial_dict[VALUE]))
+            raise BridgeException(self.deserialize_from_dict(
+                serial_dict[MESSAGE]), self.build_bridged_object(serial_dict[VALUE]))
         elif serial_dict[TYPE] == BRIDGED:
             return self.get_object_by_handle(serial_dict[VALUE])
         elif serial_dict[TYPE] == NONE:
@@ -879,7 +885,7 @@ class BridgeConn(object):
             result = setattr(target, name, value)
         except Exception as e:
             result = e
-            traceback.print_exc() # TODO - this and other tracebacks, log with info about what's happening
+            traceback.print_exc()  # TODO - this and other tracebacks, log with info about what's happening
 
         return result
 
@@ -1263,10 +1269,11 @@ class BridgeConn(object):
         stats = None
         if self.stats is not None:
             stats = self.stats.copy()
-            
+
         return stats
 
-class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClient share a class
+
+class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClient share a class
     """ Python2Python RPC bridge server 
 
         Like a thread, so call run() to run directly, or start() to run on a background thread
@@ -1304,7 +1311,7 @@ class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClien
 
         # if we're starting the server, we need to make sure the flag is set to false
         GLOBAL_BRIDGE_SHUTDOWN = False
-        
+
         # specify a callable to local_call_hook(bridge_conn, target_callable, *args, **kwargs) or
         # local_eval_hook(bridge_conn, eval_expression, eval_globals_dict, eval_locals_dict) to
         # hook local_call/local_eval to allow inspection/modification of calls/evals (e.g., forcing them onto a particular thread)
@@ -1316,7 +1323,8 @@ class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClien
         return self.server.socket.getsockname()
 
     def run(self):
-        self.logger.info("serving! (jfx_bridge v{}, Python {}.{}.{})".format(__version__, sys.version_info.major, sys.version_info.minor, sys.version_info.micro))
+        self.logger.info("serving! (jfx_bridge v{}, Python {}.{}.{})".format(
+            __version__, sys.version_info.major, sys.version_info.minor, sys.version_info.micro))
         self.is_serving = True
         self.server.serve_forever()
         self.logger.info("stopped serving")
@@ -1334,7 +1342,7 @@ class BridgeServer(threading.Thread): # TODO - have BridgeServer and BridgeClien
 
 class BridgeClient(object):
     """ Python2Python RPC bridge client """
-    
+
     local_call_hook = None
     local_eval_hook = None
     _bridge = None
@@ -1363,16 +1371,17 @@ class BridgeClient(object):
             # We add it at the end, so we only catch imports that no one else wants to handle
             sys.path.append(repr(self.client))
             # TODO make sure we remove the finder when the client is torn down?
-        
+
         self._bridge = self
-        
+
     @property
     def bridge(self):
         """ for backwards compatibility with old examples using external_bridge.bridge.remote_import/etc,
             before the external bridges just inherited from BridgeClient
             Allow access, but warn about it
         """
-        warnings.warn("Using <external_bridge>.bridge to get to remote_import/eval/shutdown is deprecated - just do <external_bridge>.remote_import/etc.", DeprecationWarning)
+        warnings.warn(
+            "Using <external_bridge>.bridge to get to remote_import/eval/shutdown is deprecated - just do <external_bridge>.remote_import/etc.", DeprecationWarning)
         return self._bridge
 
     def remote_import(self, module_name):
@@ -1393,7 +1402,7 @@ class BridgeClient(object):
 
     def remote_shutdown(self):
         return self.client.remote_shutdown()
-        
+
     def get_stats(self):
         """ Get the statistics recorded across the run of this BridgeClient """
         return self.client.get_stats()
@@ -1734,5 +1743,3 @@ class BridgedModuleFinderLoader:
 
         # hand back the module
         return target
-
-            
