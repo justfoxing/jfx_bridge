@@ -348,7 +348,7 @@ class TestBridge(unittest.TestCase):
         remote_time = self.test_bridge.remote_import("time")
 
         # check that it times out if not enough time allocated
-        with self.assertRaises(Exception):
+        with self.assertRaises(bridge.BridgeTimeoutException):
             self.test_bridge.remote_eval("sleep(2)", timeout_override=1, sleep=remote_time.sleep)
 
         # check that it works with enough time

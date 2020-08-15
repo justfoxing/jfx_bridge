@@ -152,6 +152,12 @@ class BridgeOperationException(Exception):
 class BridgeClosedException(Exception):
     """ The bridge has closed """
     pass
+    
+class BridgeTimeoutException(Exception):
+    """ A command we tried to run across the bridge took too long. You might need to increase the response timeout, check the command isn't
+        causing a deadlock, or make sure the network connection to the other end of the bridge is okay.
+    """
+    pass    
 
 
 def stats_hit(func):
@@ -519,8 +525,9 @@ class BridgeResponse(object):
     event = None  # used to flag whether the response is ready
     response = None
 
-    def __init__(self):
+    def __init__(self, response_id):
         self.event = threading.Event()
+        self.response_id = response_id # just for tracking, so we can report it in timeout exception if needed
 
     def set(self, response):
         """ store response data, and let anyone waiting know it's ready """
@@ -537,7 +544,8 @@ class BridgeResponse(object):
             timeout = None
 
         if not self.event.wait(timeout):
-            raise Exception()
+            raise BridgeTimeoutException(
+                "Didn't receive response {} before timeout".format(self.response_id))
 
         return self.response
 
@@ -557,7 +565,7 @@ class BridgeResponseManager(object):
             response_id = response_dict[ID]
             if response_id not in self.response_dict:
                 # response hasn't been waited for yet. create the entry
-                self.response_dict[response_id] = BridgeResponse()
+                self.response_dict[response_id] = BridgeResponse(response_id)
 
             # set the data and trigger the event
             self.response_dict[response_id].set(response_dict)
@@ -567,16 +575,11 @@ class BridgeResponseManager(object):
         with self.response_lock:
             if response_id not in self.response_dict:
                 # response hasn't been waited for yet. create the entry
-                self.response_dict[response_id] = BridgeResponse()
+                self.response_dict[response_id] = BridgeResponse(response_id)
             response = self.response_dict[response_id]
 
-        data = None
-        try:
-            # wait for the data
-            data = response.get(timeout)
-        except:
-            raise Exception(
-                "Didn't receive response {} before timeout".format(response_id))
+        # wait for the data - will throw a BridgeTimeoutException if doesn't get it by timeout
+        data = response.get(timeout)
 
         if TYPE in data:
             if data[TYPE] == ERROR:
