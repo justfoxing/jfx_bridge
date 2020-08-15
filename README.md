@@ -21,7 +21,11 @@ Table of contents
 
 How to use
 ======================
-You might actually want one of the packages that uses jfx_bridge, such as [GhidraBridge](https://github.com/justfoxing/ghidra_bridge), [IDABridge](https://github.com/justfoxing/jfx_bridge_ida), or [JEBBridge](https://github.com/justfoxing/jfx_bridge_jeb).
+You might actually want one of the following projects that uses jfx_bridge:
+
+* [ghidra_bridge](https://github.com/justfoxing/ghidra_bridge) for Ghidra [![ghidra_bridge PyPi version](https://img.shields.io/pypi/v/ghidra_bridge.svg)](https://pypi.org/project/ghidra-bridge/)
+* [jfx_bridge_ida](https://github.com/justfoxing/jfx_bridge_ida) for IDA Pro [![jfx_bridge_ida PyPi version](https://img.shields.io/pypi/v/jfx_bridge_ida.svg)](https://pypi.org/project/jfx-bridge-ida/)
+* [jfx_bridge_jeb](https://github.com/justfoxing/jfx_bridge_jeb) for JEB Decompiler [![jfx_bridge_jeb PyPi version](https://img.shields.io/pypi/v/jfx_bridge_jeb.svg)](https://pypi.org/project/jfx-bridge-jeb/)
 
 Security warning
 =====================
