@@ -463,7 +463,7 @@ class BridgeReceiverThread(threading.Thread):
                 if can_handle_version(msg_dict):
                     if msg_dict[TYPE] in [RESULT, ERROR]:
                         # handle a response or error
-                        self.bridge_conn.response_mgr.add_response(msg_dict)
+                        self.bridge_conn.add_response(msg_dict)
                     else:
                         # queue this and hand off to a worker threadpool
                         threadpool.handle_command(msg_dict)
@@ -1284,6 +1284,11 @@ class BridgeConn(object):
             stats = self.stats.copy()
 
         return stats
+        
+    @stats_hit
+    def add_response(self, msg_dict):
+        # Just a wrapper to allow us to record this stat
+        self.response_mgr.add_response(msg_dict)
 
 
 class BridgeServer(threading.Thread):  # TODO - have BridgeServer and BridgeClient share a class
