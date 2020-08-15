@@ -70,11 +70,10 @@ sys.modules["test_hook_import_dotted"].child = sys.modules["test_hook_import_dot
 sys.modules["test_hook_import_nonmodule"] = run_server
 
 # a callable that's marked nonreturn
+@bridge.nonreturn
 def nonreturn():
     # would cause a timeout if it wasn't a nonreturn
     time.sleep(10)
-    
-nonreturn._bridge_nonreturn = True
 
 if __name__ == "__main__":
     port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))

@@ -481,8 +481,6 @@ class TestBridge(unittest.TestCase):
         """ Test that a callable marked as nonreturn doesn't return when called normally
         """
         remote_main = self.test_bridge.remote_import("__main__")
-        print(remote_main.nonreturn.__dict__)
-        print(remote_main.nonreturn._bridge_nonreturn)
         # would normally time out
         remote_main.nonreturn()
         
@@ -493,13 +491,12 @@ class TestBridge(unittest.TestCase):
         class Callback:
             called = False
             
+            @bridge.nonreturn
             def callback(self):
                 self.called = True
                 # cause a timeout
                 time.sleep(10)
-        
-        Callback.callback._bridge_nonreturn = True
-        
+
         c = Callback()
         
         self.test_bridge.remote_eval("c.callback()", c=c, timeout_override=1)

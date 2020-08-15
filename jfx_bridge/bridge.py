@@ -1784,3 +1784,8 @@ class BridgedModuleFinderLoader:
 
         # hand back the module
         return target
+
+def nonreturn(func):
+    """ Decorator to simplying marking a function as nonreturning for the bridge """
+    func._bridge_nonreturn = True
+    return func
