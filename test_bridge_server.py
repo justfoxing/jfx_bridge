@@ -6,6 +6,7 @@ import subprocess
 import sys
 import os
 import types
+import time
 from jfx_bridge import bridge
 
 def run_server(server_host=bridge.DEFAULT_HOST, server_port=bridge.DEFAULT_SERVER_PORT, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT):
@@ -67,6 +68,13 @@ sys.modules["test_hook_import_dotted"].__path__ = ["fake"]
 sys.modules["test_hook_import_dotted"].child = sys.modules["test_hook_import_dotted.child"]
 # create a "module" that's not a module, to represent java classes in Jython (which are callables)
 sys.modules["test_hook_import_nonmodule"] = run_server
+
+# a callable that's marked nonreturn
+def nonreturn():
+    # would cause a timeout if it wasn't a nonreturn
+    time.sleep(10)
+    
+nonreturn._bridge_nonreturn = True
 
 if __name__ == "__main__":
     port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))

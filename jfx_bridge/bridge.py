@@ -1657,8 +1657,15 @@ class BridgedCallable(BridgedObject):
         """ As with __new__, __init__ may be called as part of a class creation, not just an instance of BridgedCallable. We just ignore that case """
         if class_init is None:
             super(BridgedCallable, self).__init__(bridge_conn, obj_dict)
-
+            if "_bridge_nonreturn" in self._bridge_attrs:
+                # if the attribute is present (even if set to False/None), assume it's nonreturning. Shouldn't be present on anything else
+                self._bridge_nonreturn = True
+            
     def __call__(self, *args, **kwargs):
+        # if we've marked this callable with _bridge_nonreturn, don't wait for a response
+        if getattr(self, "_bridge_nonreturn", False):
+            return self._bridge_call_nonreturn(*args, **kwargs)
+    
         return self._bridge_conn.remote_call(self._bridge_handle, *args, **kwargs)
         
     def _bridge_call_nonreturn(self, *args, **kwargs):
