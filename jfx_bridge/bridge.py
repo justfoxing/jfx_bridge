@@ -968,7 +968,7 @@ class BridgeConn(object):
         command_dict = {CMD: DEL, ARGS: {HANDLE: handle}}
         try:
             self.send_cmd(command_dict, get_response=False)
-        except ConnectionError:
+        except (ConnectionError, OSError):
             # get a lot of these when shutting down if the bridge connection has already been torn down before the bridged objects are deleted
             # just ignore - we want to know if the other operations fail, but deleting failing we can probably get away with
             pass
