@@ -13,6 +13,7 @@ Table of contents
 * [Remote eval](#remote-eval)
 * [Long-running commands](#long-running-commands)
 * [Remote imports](#remote-imports)
+* [Optimising for performance](#optimising-for-performance)
 * [How it works](#how-it-works)
 * [Design principles](#design-principles)
 * [Tested](#tested)
@@ -69,6 +70,45 @@ If you want to import modules from the other side (e.g., to access modules only 
 * Use remote_import to get a BridgedModule back directly (e.g., `remote_module = b.remote_import("foo.bar")`). This has the advantage that you have exact control over getting the remote module (and can get remote modules with the same name as local modules) and when it's released, but it does take a little more work.
 * Specify hook_import=True when creating the bridge (e.g., `b = jfx_bridge.bridge.BridgeClient(hook_import=True)`). This will add a hook to the import machinery such that, if nothing else can fill the import, the bridge will try to handle it. This allows you to just use the standard `import foo.bar` syntax after you've connected the bridge. This has the advantage that it may be a little easier to use (you still have to make sure the imports happen AFTER the bridge is connected), but it doesn't allow you to import remote modules with the same name as local modules (the local imports take precedence) and it places the remote modules in sys.modules as proper imports, so they and the bridge will likely stay loaded until the process terminates. Additionally, multiple bridges with hook_import=True will attempt to resolve imports in the order they were connected, which may not be the behaviour you want.
 
+Optimising for performance
+=====================
+If your bridged script is running slowly, a few tips:
+* Don't optimise without data! Create the bridge with record_stats=True, and use get_stats() to record the statistics (hits on different remote commands and send times) through your script to see where the most bridge usage is taking place. As a simple rule of thumb, more hits = more traffic on the bridge = slower script.
+```python
+b = jfx_bridge.bridge.BridgeClient(record_stats=True)
+start_stats = b.get_stats()
+
+# do something chunky
+....
+
+print(b.get_stats() - start_stats)
+
+# Stats(total_hits=918,hits={'remote_import': 32, 'add_response': 354, 'remote_get': 212, 'remote_call': 71, 'remote_get_type': 18, 'remote_del': 156, 'remote_eval': 10, 'local_get_type': 4, 'local_get': 29, 'local_eval': 2, 'local_del': 11, 'remote_isinstance': 6, 'local_call': 5, 'remote_call_nonreturn': 3, 'remote_create_type': 1, 'remote_set': 4},total_time=(512, 8.389705419540405),times={'send_cmd': (512, 8.389705419540405)})
+```
+* Cache values that don't change. Every "." on a bridged object requires a call across the bridge to fetch the attribute, so something like `bridged_foo.bridged_bar.bridged_flam` requires two calls to access. If you know bridged_flam isn't going to change (e.g., it's a function several modules deep) and you need to use it multiple times, get it once then save it to avoid repeating the calls.
+* For loops that cause lots of bridged operations can often be replaced with remote_evals doing list comprehesions. Instead of:
+```python
+name_list = []
+for bridged_x in bridged_get_objects():
+    name_list.append(bridged_x.get_name()) # 2 bridge calls for each x (1 to get the get_name function, 1 to call it)
+```
+try:
+```python
+name_list = b.remote_eval("[x.get_name() for x in bridged_get_objects()]", bridged_get_objects=bridged_get_objects)
+```
+* Use nonreturning calls when you don't need the result and don't have to wait for the bridged function to complete. Every BridgedCallable has a _bridge_call_nonreturn() function, which takes whatever arguments/kwargs you give it and calls the function across the bridge, but doesn't wait for a response. This is useful for when you want to call remote code that might be slow, but you don't care about the response. Alternatively, if you want remote code to call you, but you know you're not going to respond (e.g., event notifications), you can decorate your functions with @jfx_bridge.bridge.nonreturn.
+```python
+remote_time = b.remote_import("time")
+remote_time.sleep._bridge_call_nonreturn(9999999) # returns immediately
+
+@jfx_bridge.bridge.nonreturn
+def callback(foo):
+    time.sleep(9999999)
+    
+# on the remote side, will call back to the callback function and return immediately    
+remote_trigger_callback(callback) 
+```
+
 How it works
 =====================
 bridge.py contains a py2/3 compatible python object RPC proxy. One python environment sets up a server on a port, which clients connect to. The bridge provides a handful of commands to carry out remote operations against python objects in the other environment.
@@ -98,7 +138,6 @@ TODO
 * Handle server/client teardown cleanly
 * Exceptions - pull traceback info in the exceptions we handle for pushing back
 * Better transport/serialization (JSON/TCP just feels wrong)
-* Keep stats of remote queries, so users can ID the parts of their scripts causing the most remote traffic for optimisation
 * Better threadpool control (don't keep all threads around forever, allow some to die off)
 
 Contributors
