@@ -11,6 +11,7 @@ Table of contents
 * [How to use](#how-to-use)
 * [Security warning](#security-warning)
 * [Remote eval](#remote-eval)
+* [Remoteify and remote exec](#remoteify-and-remote-exec)
 * [Long-running commands](#long-running-commands)
 * [Remote imports](#remote-imports)
 * [Optimising for performance](#optimising-for-performance)
@@ -57,6 +58,65 @@ func = currentProgram.getFunctionManager().getFunctions(True).next()
 mnemonics = b.remote_eval("[ i.getMnemonicString() for i in currentProgram.getListing().getInstructions(f.getBody(), True)]", f=func)
 ```
 As a simplification, note also that the evaluation context has the same globals loaded into the \_\_main\_\_ of the script that started the server.
+
+Remoteify and remote exec
+=====================
+Maybe turning something into a list comprehension is too clunky, or you need more flexibility than remote eval provides - perhaps you need to define a callback with exception handling for bridge failures, to avoid a unexpected bridge disconnection breaking things on the other end. In that case, remoteify() might be for you! remoteify takes a module, function or class and defines it on the remote side of the connection then returns you a bridged handle back to it. This allows you to do things like:
+
+```python
+import ghidra_bridge 
+b = ghidra_bridge.GhidraBridge(namespace=globals())
+
+# define the function locally
+def get_function_names(program):
+    # all this code will be run remotely, in a single bridge call
+    name_list = []
+    for f in program.getFunctionManager().getFunctions(True):
+        name_list.append(f.getName())
+    return name_list
+
+# push the function to the remote side and get a handle back
+remote_get_function_names = b.bridge.remoteify(get_function_names)
+
+# call the remote version of the function!
+names = remote_get_function_names(currentProgram)
+```
+
+This works similarly for classes, with two caveats. First, only classes defined in files can be remoteify-ed - classes defined dynamically in a REPL will fail when the python inspect module tries to get their source (a limitation of inspect). Second, if you're defining a class that inherits from a remote class (for example, for a callback), you need to be a little careful, as follows:
+```python
+import jfx_bridge 
+b = jfx_bridge.BridgeClient()
+
+# we lie to the local interpreter about what we want to inherit from - inspect.getsource tries to follow the inheritance chain, and doesn't understand bridged objects
+RemoteCallback = object
+class SafeCallback(RemoteCallback):
+    """ We want to install a callback, but need to swallow any errors from the bridge on the remote end in case it's disconnected """
+    def __init__(self, callback_fn)
+        self.callback = callback_fn
+
+    def do_callback(self, value):
+        try:
+            self.callback(value)
+        except:
+            # swallow the exceptions
+            pass
+
+# now get a handle to the remote class we really want to inherit from, so we can tell the other side
+RemoteCallback = b.remote_import("foobar").Callback
+
+# push the class to the remote side and get a handle back
+# Note that we supply the real class to inherit from as a kwarg
+RemoteSafeCallback = b.remoteify(SafeCallback, RemoteCallback=RemoteCallback)
+
+# instantiate!
+x = RemoteSafeCallback(callback_fn)
+```
+
+As the previous example shows, you can supply globals to the definitions by providing kwargs to remoteify. 
+
+remoteify-ing a module, function or class requires that the Python interpreters on BOTH ends understand your code - the local end needs to understand it enough to create the module, function or class, and the remote end needs to understand it to create it and run it. This means that if you're remoteify-ing something from Python 3 to Python 2, you'll need to make sure it's compatible with both languages.
+
+remoteify() is built on top of the remote_exec() function, which provides access to exec(). If you need something even more flexible than remoteify, remote_exec() is a backdoor that should let you do just about anything you can think of. remote_exec just takes a string of code to execute (and optionally kwargs to add as globals), so the code only has to be understood by the remote Python interpreter - this might be helpful if you're having problems writing something that's compatible with two different versions.
 
 Long-running commands
 =====================

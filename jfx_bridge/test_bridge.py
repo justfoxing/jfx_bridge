@@ -12,6 +12,7 @@ import os
 import functools
 
 from . import bridge
+from . import test_module
 
 if sys.version_info[0] == 2:
     from socket import (
@@ -31,6 +32,11 @@ def print_stats(func):
         )
 
     return wrapper
+
+
+def test_unindented_function():
+    """ Test function used to remoteify to make sure we can still send unindented stuff """
+    return 50
 
 
 class TestBridge(unittest.TestCase):
@@ -550,6 +556,136 @@ class TestBridge(unittest.TestCase):
         # pause to let the callback land
         time.sleep(1)
         self.assertTrue(c.called)
+
+    @print_stats
+    def test_remoteify_simple_function(self):
+        """ Test that we can remoteify a simple function """
+
+        def foobar():
+            return True
+
+        remote_foobar = self.test_bridge.remoteify(foobar)
+
+        self.assertTrue(remote_foobar())
+
+    @print_stats
+    def test_remoteify_unindented(self):
+        """ Test that we can remoteify a function that isn't indented"""
+
+        remote_unindented_function = self.test_bridge.remoteify(
+            test_unindented_function
+        )
+
+        self.assertEquals(50, remote_unindented_function())
+
+    @print_stats
+    def test_remoteify_same_names(self):
+        """ Test that we can remoteify some functions with the same name """
+
+        def foobar():
+            return 10
+
+        remote_foobar10 = self.test_bridge.remoteify(foobar)
+
+        def foobar():
+            return 20
+
+        remote_foobar20 = self.test_bridge.remoteify(foobar)
+
+        self.assertEquals(10, remote_foobar10())
+        self.assertEquals(20, remote_foobar20())
+
+    @print_stats
+    def test_remoteify_function_with_args(self):
+        """ Test that we can remoteify a function that takes arguments """
+
+        def square(value):
+            return value * value
+
+        remote_square = self.test_bridge.remoteify(square)
+
+        self.assertEquals(4, remote_square(2))
+
+    @print_stats
+    def test_remoteify_function_with_kwargs(self):
+        """ Test that we can remoteify a function and supply kwargs to the definition """
+
+        def flam():
+            return defined_value
+
+        remote_flam = self.test_bridge.remoteify(flam, defined_value=30)
+        self.assertEquals(30, remote_flam())
+
+    @print_stats
+    def test_remoteify_function_with_imports(self):
+        """ Test that we can remoteify a function that uses imported modules """
+
+        def importer(val):
+            from collections import deque
+
+            d = deque()
+            d.append(val)
+            return d
+
+        remote_importer = self.test_bridge.remoteify(importer)
+        self.assertEquals(10, remote_importer(10).pop())
+
+    @print_stats
+    def test_remoteify_class(self):
+        """ Test that we can remoteify a class """
+
+        class CLZ:
+            def __init__(self, val):
+                self.val = val
+
+        remote_clz = self.test_bridge.remoteify(CLZ)
+
+        rc = remote_clz(20)
+        self.assertEquals(20, rc.val)
+
+    @print_stats
+    def test_remoteify_class_with_inheritance(self):
+        """ Test that we can remoteify a class that inherits from a remote class """
+        remote_deque = (
+            object  # lie to inspect locally that we're just inheriting from object
+        )
+
+        class new_deque(remote_deque):
+            def __init__(self, test):
+                remote_deque.__init__(self)
+                self.test = test
+                self.called = False
+
+            def append(self, x):
+                remote_deque.append(self, x)
+                self.called = True
+
+        remote_collections = self.test_bridge.remote_import("collections")
+        remote_deque = remote_collections.deque
+
+        remote_new_deque = self.test_bridge.remoteify(
+            new_deque, remote_deque=remote_deque
+        )
+
+        nd = remote_new_deque("test")
+        self.assertEquals(nd.test, "test")
+
+        nd.append(1)
+        self.assertTrue(nd.called)
+        self.assertEquals(nd.pop(), 1)
+
+        self.assertTrue(
+            isinstance(nd.append, bridge.BridgedCallable),
+            "Expected remoteified implementation to be remote - is actually: "
+            + str(type(nd.append)),
+        )
+
+    @print_stats
+    def test_remoteify_module(self):
+        """ Check we can remoteify a module """
+        remote_test_module = self.test_bridge.remoteify(test_module)
+        remote_sys = self.test_bridge.remote_import("sys")
+        self.assertEquals(remote_sys.version_info[0], remote_test_module.run())
 
 
 class TestBridgeHookImport(unittest.TestCase):

@@ -22,6 +22,10 @@ import weakref
 import functools
 import operator
 import warnings
+import inspect
+import random
+import textwrap
+import types
 
 __version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
@@ -109,6 +113,7 @@ CALL = "call"
 IMPORT = "import"
 DEL = "del"
 EVAL = "eval"
+EXEC = "exec"
 EXPR = "expr"
 RESULT = "result"
 ERROR = "error"
@@ -1302,7 +1307,7 @@ class BridgeConn(object):
                         e, traceback.format_exc()
                     )
                 )
-                self.logger.debug("Falling back:\n\local_eval {}".format(args_dict))
+                self.logger.debug("Falling back:\nlocal_eval {}".format(args_dict))
 
         try:
             """ the import __main__ trick allows accessing all the variables that the bridge imports, 
@@ -1322,6 +1327,114 @@ class BridgeConn(object):
         except Exception as e:
             result = e
             traceback.print_exc()
+
+        return result
+
+    @stats_hit
+    def remote_exec(self, exec_string, timeout_override=None, **kwargs):
+        self.logger.debug("remote_exec({}, {})".format(exec_string, kwargs))
+
+        command_dict = {
+            CMD: EXEC,
+            ARGS: self.serialize_to_dict({EXPR: exec_string, KWARGS: kwargs}),
+        }
+        # Remote exec commands might take a while, so override the timeout value, factor 100 is arbitrary unless an override specified by caller
+        if timeout_override is None:
+            timeout_override = self.response_timeout * 100
+        result = self.send_cmd(command_dict, timeout_override=timeout_override)
+
+        return self.deserialize_from_dict(result)
+
+    @stats_hit
+    def local_exec(self, args_dict):
+        args = self.deserialize_from_dict(args_dict)
+
+        result = None
+
+        if self.logger.getEffectiveLevel() <= logging.DEBUG:
+            try:
+                # we want to get log the deserialized values, because they're useful.
+                # but this also means a bad repr can break things. So we get ready to
+                # catch that and fallback to undeserialized values
+                self.logger.debug("local_exec({},{})".format(args[EXPR], args[KWARGS]))
+            except Exception as e:
+                self.logger.debug(
+                    "Failed to log deserialized arguments: {}\n{}".format(
+                        e, traceback.format_exc()
+                    )
+                )
+                self.logger.debug("Falling back:\nlocal_exec {}".format(args_dict))
+
+        try:
+            """ the import __main__ trick allows accessing all the variables that the bridge imports, 
+            so execs will run within the global context of what started the bridge, and the arguments 
+            supplied as kwargs will override that """
+            exec_expr = args[EXPR]
+            exec_globals = importlib.import_module("__main__").__dict__
+            # unlike remote_eval, we add the kwargs to the globals, because the most common use of remote_exec is to define a function/class, and locals aren't accessible in those definitions
+            exec_globals.update(args[KWARGS])
+            # do the exec
+            exec(exec_expr, exec_globals)
+            self.logger.debug("local_exec: Finished executing")
+        except Exception as e:
+            result = e
+            traceback.print_exc()
+
+        return result
+
+    def remoteify(self, module_class_or_function, **kwargs):
+        """ Push a module, class or function definition into the remote python interpreter, and return a handle to it.
+
+            Notes: 
+                * requires that the class or function code is able to be understood by the remote interpreter (e.g., if it's running python2, the source must be python2 compatible)
+                * If remoteify-ing a class, the class can't be defined in a REPL (a limitation of inspect.getsource). You need to define it in a file somewhere.
+                * If remoteify-ing a module, it can't do relative imports - they require a package structure which won't exist
+                * If remoteify-ing a module, you only get the handle back - it's not installed into the remote or local sys.modules, you need to do that yourself.
+        """
+        source_string = inspect.getsource(module_class_or_function)
+        name = module_class_or_function.__name__
+
+        # random name that'll appear in the __main__ globals to retrieve the remote definition.
+        # Used to avoid colliding with other uses of the name that might be there, or other clients
+        temp_name = "_bridge_remoteify_temp_result" + "".join(
+            [random.choice("0123456789ABCDEF") for _ in range(0, 8)]
+        )
+
+        if isinstance(module_class_or_function, types.ModuleType):
+            """ Modules need a bit of extra love and care. """
+            # We'll use the temp_name to store the source of the module (makes it easier than patching it into the format string below and escaping everything),
+            # and pass it as a global to the exec
+            kwargs[temp_name] = source_string
+
+            # We create a new module context to execute the module code in, then run a second exec from
+            # the first exec inside the new module's __dict__, so imports are set correctly as globals of the module (not globals of the exec)
+            # Note that we need to force the module name to be a string - python2 doesn't support unicode module names, and the bridge converts strings to unicode in py2
+            source_string = "import types\nnew_mod = types.ModuleType(str('{name}'))\nexec({temp_name}, new_mod.__dict__)\n".format(
+                name=name, temp_name=temp_name
+            )
+            # update name to capture the new module object we've created
+            name = "new_mod"
+
+        elif (
+            source_string[0] in " \t"
+        ):  # modules won't be indented, only a class/function issue
+            # source is indented to some level, so dedent it to avoid an indentation error
+            source_string = textwrap.dedent(source_string)
+
+        retrieval_string = "\nglobals()['{temp_name}'] = {name}".format(
+            temp_name=temp_name, name=name
+        )
+
+        # run the exec
+        self.remote_exec(source_string + retrieval_string, **kwargs)
+
+        # retrieve from __main__ with remote_eval
+        result = self.remote_eval(temp_name)
+
+        # nuke the temp name - the remote handle will keep the module/class/function around
+        self.remote_exec(
+            "global {temp_name}\ndel {temp_name}".format(temp_name=temp_name)
+        )
 
         return result
 
@@ -1378,6 +1491,8 @@ class BridgeConn(object):
                 result = self.local_isinstance(command_dict[ARGS])
             elif command_dict[CMD] == EVAL:
                 result = self.local_eval(command_dict[ARGS])
+            elif command_dict[CMD] == EXEC:
+                result = self.local_exec(command_dict[ARGS])
             elif command_dict[CMD] == SHUTDOWN:
                 result = self.local_shutdown()
 
@@ -1634,6 +1749,28 @@ class BridgeClient(object):
         return self.client.remote_eval(
             eval_string, timeout_override=timeout_override, **kwargs
         )
+
+    def remote_exec(self, exec_string, timeout_override=None, **kwargs):
+        """ Takes python script as a string and executes it entirely on the server.
+
+            To provide arguments into the exec context, supply them as keyword arguments with names matching the names used in the exec string (e.g., remote_exec("print(x)", x="helloworld")).
+
+            Note: the python script must be able to be understood by the remote interpreter (e.g., if it's running python2, the script must be python2 compatible)
+        """
+        return self.client.remote_exec(
+            exec_string, timeout_override=timeout_override, **kwargs
+        )
+
+    def remoteify(self, module_class_or_function, **kwargs):
+        """ Push a module, class or function definition into the remote python interpreter, and return a handle to it.
+
+            Notes: 
+                * requires that the class or function code is able to be understood by the remote interpreter (e.g., if it's running python2, the source must be python2 compatible)
+                * If remoteify-ing a class, the class can't be defined in a REPL (a limitation of inspect.getsource). You need to define it in a file somewhere.
+                * If remoteify-ing a module, it can't do relative imports - they require a package structure which won't exist
+                * If remoteify-ing a module, you only get the handle back - it's not installed into the remote or local sys.modules, you need to do that yourself.
+        """
+        return self.client.remoteify(module_class_or_function, **kwargs)
 
     def remote_shutdown(self):
         return self.client.remote_shutdown()
