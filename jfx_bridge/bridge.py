@@ -700,6 +700,7 @@ class BridgeConn(object):
         # if the bridge has requested a local_call_hook/local_eval_hook, record that
         self.local_call_hook = bridge.local_call_hook
         self.local_eval_hook = bridge.local_eval_hook
+        self.local_exec_hook = bridge.local_exec_hook
 
         if record_stats:
             self.stats = Stats()
@@ -1373,8 +1374,11 @@ class BridgeConn(object):
             exec_globals = importlib.import_module("__main__").__dict__
             # unlike remote_eval, we add the kwargs to the globals, because the most common use of remote_exec is to define a function/class, and locals aren't accessible in those definitions
             exec_globals.update(args[KWARGS])
-            # do the exec
-            exec(exec_expr, exec_globals)
+            # do the exec, or defer to the hook if we've registered one
+            if self.local_exec_hook is None:
+                exec(exec_expr, exec_globals)
+            else:
+                self.local_exec_hook(self, exec_expr, exec_globals)
             self.logger.debug("local_exec: Finished executing")
         except Exception as e:
             result = e
@@ -1390,6 +1394,7 @@ class BridgeConn(object):
                 * If remoteify-ing a class, the class can't be defined in a REPL (a limitation of inspect.getsource). You need to define it in a file somewhere.
                 * If remoteify-ing a module, it can't do relative imports - they require a package structure which won't exist
                 * If remoteify-ing a module, you only get the handle back - it's not installed into the remote or local sys.modules, you need to do that yourself.
+                * You can't remoteify a decorated function/class - it'll only get the source for the decorator wrapper, not the original.
         """
         source_string = inspect.getsource(module_class_or_function)
         name = module_class_or_function.__name__
@@ -1598,6 +1603,7 @@ class BridgeServer(
     is_serving = False
     local_call_hook = None
     local_eval_hook = None
+    local_exec_hook = None
 
     def __init__(
         self,
@@ -1607,6 +1613,7 @@ class BridgeServer(
         response_timeout=DEFAULT_RESPONSE_TIMEOUT,
         local_call_hook=None,
         local_eval_hook=None,
+        local_exec_hook=None,
     ):
         """ Set up the bridge.
 
@@ -1643,6 +1650,7 @@ class BridgeServer(
         # hook local_call/local_eval to allow inspection/modification of calls/evals (e.g., forcing them onto a particular thread)
         self.local_call_hook = local_call_hook
         self.local_eval_hook = local_eval_hook
+        self.local_exec_hook = local_exec_hook
 
     def get_server_info(self):
         """ return where the server is serving on """
@@ -1677,6 +1685,7 @@ class BridgeClient(object):
 
     local_call_hook = None
     local_eval_hook = None
+    local_exec_hook = None
     _bridge = None
 
     def __init__(
@@ -1769,6 +1778,7 @@ class BridgeClient(object):
                 * If remoteify-ing a class, the class can't be defined in a REPL (a limitation of inspect.getsource). You need to define it in a file somewhere.
                 * If remoteify-ing a module, it can't do relative imports - they require a package structure which won't exist
                 * If remoteify-ing a module, you only get the handle back - it's not installed into the remote or local sys.modules, you need to do that yourself.
+                * You can't remoteify a decorated function/class - it'll only get the source for the decorator wrapper, not the original.
         """
         return self.client.remoteify(module_class_or_function, **kwargs)
 
