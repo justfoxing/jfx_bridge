@@ -770,7 +770,9 @@ class BridgeConn(object):
             serialized_dict = {TYPE: INT, VALUE: str(data)}
         elif isinstance(data, float):
             serialized_dict = {TYPE: FLOAT, VALUE: str(data)}
-        elif isinstance(data, STRING_TYPES):  # all strings are coerced to unicode
+        elif isinstance(
+            data, STRING_TYPES
+        ):  # all strings are coerced to unicode when serialized
             serialized_dict = {
                 TYPE: STR,
                 VALUE: base64.b64encode(data.encode("utf-8")).decode("utf-8"),
@@ -848,7 +850,18 @@ class BridgeConn(object):
         elif serial_dict[TYPE] == BOOL:
             return serial_dict[VALUE] == "True"
         elif serial_dict[TYPE] == STR:
-            return base64.b64decode(serial_dict[VALUE]).decode("utf-8")
+            result = base64.b64decode(serial_dict[VALUE]).decode("utf-8")
+            # if we're in python 2, result is now a unicode string.
+            if sys.version_info[0] == 2:
+                try:
+                    # We'll try and force it down to a plain string, because there are plenty of cases where plain strings
+                    # are expected instead of unicode (e.g., type/module names). If that fails, we'll keep it as unicode.
+                    result = str(result)
+                except UnicodeEncodeError:
+                    # couldn't make it ascii, keep as unicode
+                    pass
+            return result
+
         elif serial_dict[TYPE] == BYTES:
             return base64.b64decode(serial_dict[VALUE])
         elif serial_dict[TYPE] == LIST:
@@ -1413,7 +1426,7 @@ class BridgeConn(object):
 
             # We create a new module context to execute the module code in, then run a second exec from
             # the first exec inside the new module's __dict__, so imports are set correctly as globals of the module (not globals of the exec)
-            # Note that we need to force the module name to be a string - python2 doesn't support unicode module names, and the bridge converts strings to unicode in py2
+            # Note that we need to force the module name to be a string - python2 doesn't support unicode module names
             source_string = "import types\nnew_mod = types.ModuleType(str('{name}'))\nexec({temp_name}, new_mod.__dict__)\n".format(
                 name=name, temp_name=temp_name
             )
@@ -1565,7 +1578,7 @@ class BridgeConn(object):
 
         local_type = type(
             str("_bridged_" + type_name), bases, class_dict
-        )  # str to force it to non-unicode in py2
+        )  # str to force it to non-unicode in py2 (is unicode thanks to unicode_literals)
         self.cached_bridge_types[type_name] = local_type
 
         return local_type

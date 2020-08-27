@@ -200,11 +200,6 @@ class TestBridge(unittest.TestCase):
             1.5,
         ]
 
-        # gross hack - race where remote objects are being deleted after the remote list is created,
-        # but before the response makes it back (so remote del commands arrive first and nuke the
-        # handles). TODO - look into an actual fix, like keep handles until their local objects are
-        # deleted as well?
-        time.sleep(1)
         # send the list in to create a remote list (which comes straight back)
         created_list = remote_list(test_list)
 
@@ -686,6 +681,52 @@ class TestBridge(unittest.TestCase):
         remote_test_module = self.test_bridge.remoteify(test_module)
         remote_sys = self.test_bridge.remote_import("sys")
         self.assertEquals(remote_sys.version_info[0], remote_test_module.run())
+
+    @print_stats
+    def test_unicode_strings_only_when_required(self):
+        """ Moving away from old behaviour of forcing all strings across the bridge into python 2 to be unicode
+            Instead, they'll now be forced to unicode, then attempt to drop back to plain strings. """
+        remote_sys = self.test_bridge.remote_import("sys")
+        remote_python_version = remote_sys.version_info[0]
+        local_python_version = sys.version_info[0]
+
+        # only relevant to test when python 2 is in the mix, either local or remote
+        if local_python_version == 3 and remote_python_version == 3:
+            self.skipTest("Test irrelevant for non python 2 setups")
+
+        if remote_python_version == 2:
+            # send the remote side strings that are plain and unicode and check what we get
+            plain_string = "string"
+            unicode_string = "unicode_string🐉🔍"
+
+            self.assertFalse(
+                self.test_bridge.remote_eval(
+                    "isinstance(plain_string, unicode)", plain_string=plain_string
+                )
+            )
+            self.assertTrue(
+                self.test_bridge.remote_eval(
+                    "isinstance(unicode_string, unicode)", unicode_string=unicode_string
+                )
+            )
+
+        if local_python_version == 2:
+            # get the remote side to send us strings that are plain and unicode and check what we get
+            self.assertFalse(
+                isinstance(self.test_bridge.remote_eval("'plain'"), unicode)
+            )
+            self.assertTrue(
+                isinstance(
+                    self.test_bridge.remote_eval(
+                        "bytearray([240, 159, 144, 137]).decode('utf-8')"
+                    ),
+                    unicode,
+                )
+            )  # dragon emoji
+
+        else:
+            # same versions, can't think of anything useful to test load
+            self.skipTest("Test irrelevant for matched versions")
 
 
 class TestBridgeHookImport(unittest.TestCase):
