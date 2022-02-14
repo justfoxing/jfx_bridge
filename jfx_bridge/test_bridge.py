@@ -468,6 +468,34 @@ class TestBridge(unittest.TestCase):
             self.assertEquals(bytes(dq), b"\x01")
 
     @print_stats
+    def test_hash(self):
+        """ Test that we handle calling hash()/inserting a bridged object into a dictionary """
+        remote_datetime = self.test_bridge.remote_import("datetime")
+        td1 = remote_datetime.timedelta(1)
+        td2 = remote_datetime.timedelta(2)
+
+        h1 = hash(td1)
+        h2 = hash(td2)
+        self.assertNotEqual(h1, h2)
+
+        # note that hashes of equivalent objects created locally will not necessarily have the same value, due to different implementations across python versions - so don't mix bridged/local objects in the same dictionary.
+
+        d = dict()
+        d[td1] = "a"
+        d[td2] = "b"
+
+        self.assertEquals(d[remote_datetime.timedelta(1)], "a")
+        self.assertEquals(d[remote_datetime.timedelta(2)], "b")
+
+    @print_stats
+    def test_unhashable(self):
+        """ Test that we don't magically hash unhashable objects """
+        remote_collections = self.test_bridge.remote_import("collections")
+        dq = remote_collections.deque()
+        with self.assertRaises(TypeError):
+            hash(dq)
+
+    @print_stats
     def test_remote_inheritance(self):
         """ check that we can inherit from a remote type """
         remote_collections = self.test_bridge.remote_import("collections")
