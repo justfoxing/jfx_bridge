@@ -140,7 +140,7 @@ GLOBAL_BRIDGE_SHUTDOWN = False
 # type(instance).doThing(instance) - such as __lt__, len(), str().
 # To handle this, we define a list of class methods that we want to expose - this is a little gross, I'd like to dynamically do this based on the methods in the
 # bridged object's type, but need to come up with a blacklist of things like __class__, __new__, etc which will interfere with the local objects first
-BRIDGED_CLASS_METHODS = ["__str__", "__len__", "__iter__"]
+BRIDGED_CLASS_METHODS = ["__str__", "__len__", "__iter__", "__hash__"]
 # extract methods from operator, so I don't have to type out all the different options
 for operator_name in dir(operator):
     # only do the methods that start and end with __, and exclude __new__
