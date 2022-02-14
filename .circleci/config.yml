@@ -1,4 +1,7 @@
-version: 2
+version: 2.1
+
+orbs: 
+  github-cli: circleci/github-cli@2.0.0
 
 workflows:
   version: 2
@@ -25,6 +28,8 @@ workflows:
       - release-github:
           requires:
             - build
+          context:
+            - GITHUB_CREDS
           filters:
             tags:
               only: /^\d+\.\d+\.\d+$/
@@ -100,7 +105,7 @@ jobs:
             
   build:
     docker:
-      - image: cimg/python:3.10.2
+      - image: cimg/python:3.8.1
 
     working_directory: ~/repo
 
@@ -123,7 +128,7 @@ jobs:
   
   release-pypi:
     docker:
-      - image: circleci/python:3.8.1
+      - image: cimg/python:3.8.1
     steps:
       - run:
           name: Get twine
@@ -138,14 +143,15 @@ jobs:
             
   release-github:
     docker:
-      - image: cibuilds/github:0.12
+      - image: cimg/base:stable
     steps:
       - checkout
       - attach_workspace:
           at: ./workspace
+      - github-cli/setup          
       - run:
           name: upload to github
           command: |
             VERSION=$(git describe)
-            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${VERSION} ./workspace/dist/            
+            gh release create $VERSION ./workspace/dist/*         
         
