@@ -496,6 +496,36 @@ class TestBridge(unittest.TestCase):
             hash(dq)
 
     @print_stats
+    def test_slicing(self):
+        """ Test we can slice bridged objects """
+        mod = self.test_bridge.remote_import("__main__")
+        remote_bytearray = mod.__builtins__.bytearray
+
+        test = [10, 20, 30, 40, 50, 60]
+
+        ba = remote_bytearray(test)
+
+        # single start slice
+        self.assertEquals(list(ba[2:]), test[2:])
+
+        # single stop slice
+        self.assertEquals(list(ba[:4]), test[:4])
+
+        # single step slice
+        self.assertEquals(list(ba[::-1]), test[::-1])
+
+        # negative indices
+        self.assertEquals(list(ba[:-1]), test[:-1])
+
+        # all together now
+        self.assertEquals(list(ba[1:4:-1]), test[1:4:-1])
+
+        # make sure we can set with a slice as well
+        ba[1:4] = [0]
+        test[1:4] = [0]
+        self.assertEquals(list(ba), test)
+
+    @print_stats
     def test_remote_inheritance(self):
         """ check that we can inherit from a remote type """
         remote_collections = self.test_bridge.remote_import("collections")

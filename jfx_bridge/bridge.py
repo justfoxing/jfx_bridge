@@ -78,7 +78,7 @@ DEFAULT_SERVER_PORT = 27238  # 0x6a66 = "jf"
 VERSION = "v"
 MAX_VERSION = "max_v"
 MIN_VERSION = "min_v"
-COMMS_VERSION_4 = 4
+COMMS_VERSION_5 = 5
 TYPE = "type"
 VALUE = "value"
 KEY = "key"
@@ -92,6 +92,7 @@ STR = "str"
 BYTES = "bytes"
 NONE = "none"
 PARTIAL = "partial"
+SLICE = "slice"
 NOTIMPLEMENTED = "notimp"
 BRIDGED = "bridged"
 EXCEPTION = "exception"
@@ -128,9 +129,9 @@ KWARGS = "kwargs"
 
 BRIDGE_PREFIX = "_bridge"
 
-# Comms v4 (alpha) adds partials to the serialization - one day, I'll support backwards compatibility
-MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_4
-MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_4
+# Comms v5 (alpha) adds slices to the serialization - one day, I'll support backwards compatibility
+MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_5
+MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_5
 
 DEFAULT_RESPONSE_TIMEOUT = 2  # seconds
 
@@ -383,7 +384,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     )
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
                     result = json.dumps(
-                        {VERSION: COMMS_VERSION_4, TYPE: ERROR, ID: cmd[ID],}
+                        {VERSION: COMMS_VERSION_5, TYPE: ERROR, ID: cmd[ID],}
                     ).encode("utf-8")
 
                 # only reply if the command wants a response
@@ -800,6 +801,15 @@ class BridgeConn(object):
                     for k, v in data.items()
                 ],
             }
+        elif isinstance(data, slice):
+            serialized_dict = {
+                TYPE: SLICE,
+                VALUE: [
+                    self.serialize_to_dict(data.start),
+                    self.serialize_to_dict(data.stop),
+                    self.serialize_to_dict(data.step),
+                ],
+            }
         elif isinstance(
             data, EXCEPTION_TYPES
         ):  # will also catch java.lang.Throwable in jython context
@@ -876,6 +886,14 @@ class BridgeConn(object):
                 result[key] = value
 
             return result
+        elif (
+            serial_dict[TYPE] == SLICE
+        ):  # we create local slice objects so isinstance(slice) in __getitem__/etc works
+            start, stop, step = [
+                self.deserialize_from_dict(v) for v in serial_dict[VALUE]
+            ]
+            result = slice(start, stop, step)
+            return result
         elif serial_dict[TYPE] == EXCEPTION:
             raise BridgeException(
                 self.deserialize_from_dict(serial_dict[MESSAGE]),
@@ -925,7 +943,7 @@ class BridgeConn(object):
         """
         cmd_id = str(uuid.uuid4())  # used to link commands and responses
         envelope_dict = {
-            VERSION: COMMS_VERSION_4,
+            VERSION: COMMS_VERSION_5,
             ID: cmd_id,
             TYPE: CMD,
             CMD: command_dict,
@@ -1479,7 +1497,7 @@ class BridgeConn(object):
 
     def handle_command(self, message_dict, want_response=True):
         response_dict = {
-            VERSION: COMMS_VERSION_4,
+            VERSION: COMMS_VERSION_5,
             ID: message_dict[ID],
             TYPE: RESULT,
             RESULT: {},
