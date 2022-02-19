@@ -6,6 +6,8 @@ jfx_bridge is a simple, single file Python RPC bridge, designed to allow interac
 
 The aim is to be as transparent as possible, so once you're set up, you shouldn't need to know if an object is local or from the remote environment - the bridge should seamlessly handle getting/setting/calling against it.
 
+If you like this, feel free to buy me a coffee: https://ko-fi.com/justfoxing
+
 Table of contents
 ======================
 * [How to use](#how-to-use)
