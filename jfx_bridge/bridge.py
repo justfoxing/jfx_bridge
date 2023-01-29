@@ -27,7 +27,7 @@ import random
 import textwrap
 import types
 
-__version__ = "0.0.0"  # automatically patched by setup.py when packaging
+__version__ = "0.9.1"  # automatically patched by setup.py when packaging
 
 # from six.py's strategy
 INTEGER_TYPES = None
@@ -1566,6 +1566,7 @@ class BridgeConn(object):
             "instancemethod",
             "method_descriptor",
             "wrapper_descriptor",
+            "reflectedfunction", # jython - e.g. jarray.zeros()
         ]:
             return BridgedCallable
         elif type_name in ["module", "javapackage"]:
