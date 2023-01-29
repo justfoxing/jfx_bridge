@@ -1,0 +1,68 @@
+name: Test
+on: [push]
+jobs:
+  build: 
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Set up Python3
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Setup Python2
+        uses: actions/setup-python@v4
+        with:
+          python-version: "2.7"
+
+      - name: Install deps and setup test environment
+        run: |
+            python3 -m pip install pytest
+            python2.7 -m pip install nose
+            mkdir test-reports
+            
+      - name: Spawn bridge server and run tests (3->2 server)
+        run: |
+            export TEST_PORT=3322
+            export ERR_LOG=/tmp/script32.err
+            touch $ERR_LOG
+            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python3 -m pytest --junit-xml=test-reports/tests-3to2.xml jfx_bridge/test_bridge.py
+            
+
+      - name: Spawn bridge server and run tests (2->2 server)
+        run: |
+            export TEST_PORT=2222
+            export ERR_LOG=/tmp/script22.err
+            touch $ERR_LOG
+            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python2.7 -m nose --with-xunit --xunit-file=test-reports/tests-2to2.xml
+
+      - name: Spawn bridge server and run tests (2->3 server)
+        run: |
+            export TEST_PORT=2233
+            export ERR_LOG=/tmp/script23.err
+            touch $ERR_LOG
+            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python2.7 -m nose --with-xunit --xunit-file=test-reports/tests-2to3.xml
+
+      - name: Spawn bridge server and run tests (3->3 server)
+        run: |
+            export TEST_PORT=3333
+            export ERR_LOG=/tmp/script33.err
+            touch $ERR_LOG
+            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
+            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python3 -m pytest --junit-xml=test-reports/tests-3to3.xml jfx_bridge/test_bridge.py     
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-reports
+          path: test-reports
