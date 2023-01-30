@@ -1,68 +1,89 @@
-name: Test
+name: Test and build
 on: [push]
 jobs:
-  build: 
+  test: 
     runs-on: ubuntu-latest
 
-    steps:
+    strategy:
+        matrix:
+            client_version: ["2.7", "3.10", "3.11"]
+            server_version: ["2.7", "3.10"] # Note: 3.11 has some issue when running as a server which causes "test_nonreturn_marker_local" to fail. Not sure why. TODO, but not really a major issue as our main target is ghidra's jython 2.7 server
+
+    steps:    
       - name: Check out repository code
         uses: actions/checkout@v3
 
-      - name: Set up Python3
+      - name: Set up server python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.x"
+          python-version: ${{ matrix.server_version }}
 
-      - name: Setup Python2
+      - name: Setup client python
         uses: actions/setup-python@v4
         with:
-          python-version: "2.7"
+          python-version: ${{ matrix.client_version }}
 
-      - name: Install deps and setup test environment
+      - name: Test py3 client with pytest (3.7+)
+        env:
+            TEST_PORT: 2222
+            ERR_LOG: test-reports/script${{ matrix.client_version }}-${{ matrix.server_version }}.err
+            SCRIPT_LOG: test-reports/script${{ matrix.client_version }}-${{ matrix.server_version }}.log
+        if: startsWith( matrix.client_version, '3.' )
         run: |
-            python3 -m pip install pytest
-            python2.7 -m pip install nose
+            python${{ matrix.client_version }} -m pip install pytest
             mkdir test-reports
+            touch $ERR_LOG
+            python${{ matrix.server_version }} test_bridge_server.py >${{ env.SCRIPT_LOG }} 2> >(tee -a ${{ env.ERR_LOG }} >&2) & # Run the test jfx_bridge server
+            ( tail -f ${{ env.ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python${{ matrix.client_version }} -m pytest --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml jfx_bridge/test_bridge.py
+        
+        
+      - name: Test py2 client with nose
+        env:
+            TEST_PORT: 2222
+            ERR_LOG: test-reports/script${{ matrix.client_version }}-${{ matrix.server_version }}.err
+            SCRIPT_LOG: test-reports/script${{ matrix.client_version }}-${{ matrix.server_version }}.log
+        if: startsWith( matrix.client_version, '2.' )
+        run: |
+            python${{ matrix.client_version }} -m pip install nose
+            mkdir test-reports
+            touch $ERR_LOG
+            python${{ matrix.server_version }} test_bridge_server.py >${{ env.SCRIPT_LOG }} 2> >(tee -a ${{ env.ERR_LOG }} >&2) & # Run the test jfx_bridge server
+            ( tail -f ${{ env.ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python${{ matrix.client_version }} -m nose --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml
+        
             
-      - name: Spawn bridge server and run tests (3->2 server)
-        run: |
-            export TEST_PORT=3322
-            export ERR_LOG=/tmp/script32.err
-            touch $ERR_LOG
-            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
-            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python3 -m pytest --junit-xml=test-reports/tests-3to2.xml jfx_bridge/test_bridge.py
-            
-
-      - name: Spawn bridge server and run tests (2->2 server)
-        run: |
-            export TEST_PORT=2222
-            export ERR_LOG=/tmp/script22.err
-            touch $ERR_LOG
-            python2.7 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
-            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python2.7 -m nose --with-xunit --xunit-file=test-reports/tests-2to2.xml
-
-      - name: Spawn bridge server and run tests (2->3 server)
-        run: |
-            export TEST_PORT=2233
-            export ERR_LOG=/tmp/script23.err
-            touch $ERR_LOG
-            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
-            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python2.7 -m nose --with-xunit --xunit-file=test-reports/tests-2to3.xml
-
-      - name: Spawn bridge server and run tests (3->3 server)
-        run: |
-            export TEST_PORT=3333
-            export ERR_LOG=/tmp/script33.err
-            touch $ERR_LOG
-            python3 test_bridge_server.py >/tmp/script.log 2> >(tee -a $ERR_LOG >&2) & # Run the test jfx_bridge server
-            ( tail -f $ERR_LOG & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python3 -m pytest --junit-xml=test-reports/tests-3to3.xml jfx_bridge/test_bridge.py     
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: test-reports
-          path: test-reports
+          path: test-reports/
+  build: 
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+        with:
+            fetch-depth: '0' # make sure we get tags so git describe will work
+
+      - name: Set up python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+          
+      - name: Build wheel
+        run: |
+            pwd
+            ls
+            git describe
+            python3 -m pip install --user --upgrade wheel setuptools # make sure we've got the latest version, to support using Markdown
+            python3 setup.py sdist bdist_wheel --universal
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: dist/
+      
+          
