@@ -193,7 +193,7 @@ Design principles
 
 Tested
 =====================
-* Automatically tested on Python 3.8.1->Python 2.7
+* Automatically tested on Python 3.10->Python 2.7, Python 3.11->Python 2.7, Python 2.7->Python 2.7, Python 2.7->Python 3.10, Python 3.11->Python 3.10
 
 TODO
 =====================
