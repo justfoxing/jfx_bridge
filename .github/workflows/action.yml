@@ -58,7 +58,9 @@ jobs:
         with:
           name: test-reports
           path: test-reports/
+          
   build: 
+    needs: test
     runs-on: ubuntu-latest
     
     steps:
@@ -74,9 +76,6 @@ jobs:
           
       - name: Build wheel
         run: |
-            pwd
-            ls
-            git describe
             python3 -m pip install --user --upgrade wheel setuptools # make sure we've got the latest version, to support using Markdown
             python3 setup.py sdist bdist_wheel --universal
 
@@ -86,4 +85,11 @@ jobs:
           name: build
           path: dist/
       
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+            fail_on_unmatched_files: true
+            files:
+                dist/*
           
