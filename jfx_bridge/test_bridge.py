@@ -601,7 +601,9 @@ class TestBridge(unittest.TestCase):
 
         c = Callback()
 
+        # TODO known issue when server is 3.11 - this will get a timeout. Unknown why
         self.test_bridge.remote_eval("c.callback()", c=c, timeout_override=1)
+
         # pause to let the callback land
         time.sleep(1)
         self.assertTrue(c.called)
