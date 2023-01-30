@@ -34,13 +34,13 @@ def print_stats(func):
     return wrapper
 
 
-def test_unindented_function():
-    """ Test function used to remoteify to make sure we can still send unindented stuff """
+def sample_test_unindented_function():
+    """Test function used to remoteify to make sure we can still send unindented stuff"""
     return 50
 
 
 class TestBridge(unittest.TestCase):
-    """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT """
+    """Assumes there's a bridge server running at DEFAULT_SERVER_PORT"""
 
     @classmethod
     def setUpClass(cls):
@@ -116,7 +116,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_call_with_str(self):
-        """ also tests calling str() on remote obj """
+        """also tests calling str() on remote obj"""
 
         mod = self.test_bridge.remote_import("uuid")
 
@@ -151,7 +151,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_get_non_existent(self):
-        """ Check that requesting a non-existent attribute over the bridge raises an attributeerror """
+        """Check that requesting a non-existent attribute over the bridge raises an attributeerror"""
         mod = self.test_bridge.remote_import("re")
 
         remote_obj = mod.compile("foo")
@@ -208,7 +208,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_serialize_deserialize_bytes(self):
-        """ byte strings across 2<->3 bridges will be forced to strings (because py2 treats bytes and strs as the same thing """
+        """byte strings across 2<->3 bridges will be forced to strings (because py2 treats bytes and strs as the same thing"""
         mod = self.test_bridge.remote_import("__main__")
         remote_list = mod.__builtins__.list
 
@@ -244,7 +244,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_callback(self):
-        """ Test we correctly handle calling back to here from across the bridge """
+        """Test we correctly handle calling back to here from across the bridge"""
 
         def sort_fn(val):
             return len(val)
@@ -259,7 +259,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_iterable(self):
-        """ Test we can access values from a remote iterable """
+        """Test we can access values from a remote iterable"""
         mod = self.test_bridge.remote_import("__main__")
         remote_range = mod.__builtins__.range
 
@@ -271,7 +271,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_iterable_for(self):
-        """ Test we can access values from a remote iterable with a for loop """
+        """Test we can access values from a remote iterable with a for loop"""
         mod = self.test_bridge.remote_import("__main__")
         remote_range = mod.__builtins__.range
 
@@ -284,7 +284,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_float(self):
-        """ Test we can sent a float value """
+        """Test we can sent a float value"""
         remote_time = self.test_bridge.remote_import("time")
         remote_time.sleep(0.1)
 
@@ -361,7 +361,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_bridged_get_type(self):
-        """ Make sure we can get an object representing the type of a bridged object """
+        """Make sure we can get an object representing the type of a bridged object"""
         remote_uuid = self.test_bridge.remote_import("uuid")
         remote_obj = remote_uuid.uuid4()
 
@@ -372,7 +372,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_eval(self):
-        self.assertEquals(3, self.test_bridge.remote_eval("1+2"))
+        self.assertEqual(3, self.test_bridge.remote_eval("1+2"))
 
     @print_stats
     def test_remote_eval_bad_code(self):
@@ -381,7 +381,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_eval_kwargs(self):
-        self.assertEquals(3, self.test_bridge.remote_eval("x+y", x=1, y=2))
+        self.assertEqual(3, self.test_bridge.remote_eval("x+y", x=1, y=2))
 
     @print_stats
     def test_remote_eval_timeout(self):
@@ -407,8 +407,8 @@ class TestBridge(unittest.TestCase):
 
         self.assertTrue(td1 < td2)
         self.assertTrue(td2 >= td1)
-        self.assertEquals(remote_datetime.timedelta(3), td1 + td2)
-        self.assertEquals(td1, td2 // 2)  # we use floordiv here, truediv tested below
+        self.assertEqual(remote_datetime.timedelta(3), td1 + td2)
+        self.assertEqual(td1, td2 // 2)  # we use floordiv here, truediv tested below
 
     @print_stats
     def test_truediv(self):
@@ -417,7 +417,7 @@ class TestBridge(unittest.TestCase):
         remote_datetime = self.test_bridge.remote_import("datetime")
         td1 = remote_datetime.timedelta(1)
         td2 = remote_datetime.timedelta(2)
-        self.assertEquals(td1, td2 / 2)
+        self.assertEqual(td1, td2 / 2)
 
     @print_stats
     def test_len(self):
@@ -427,11 +427,11 @@ class TestBridge(unittest.TestCase):
         dq.append(1)
         dq.append(2)
         dq.append(3)
-        self.assertEquals(3, len(dq))
+        self.assertEqual(3, len(dq))
 
     @print_stats
     def test_bool(self):
-        """ check we handle truthiness """
+        """check we handle truthiness"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
         self.assertFalse(bool(dq))
@@ -456,20 +456,20 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_bytes(self):
-        """ Test that we handle calling bytes() on a bridged object """
+        """Test that we handle calling bytes() on a bridged object"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
         dq.append(1)
 
         if sys.version_info[0] == 2:
             # bytes() == str() in py 2
-            self.assertEquals(bytes(dq), "deque([1])")
+            self.assertEqual(bytes(dq), "deque([1])")
         else:
-            self.assertEquals(bytes(dq), b"\x01")
+            self.assertEqual(bytes(dq), b"\x01")
 
     @print_stats
     def test_hash(self):
-        """ Test that we handle calling hash()/inserting a bridged object into a dictionary """
+        """Test that we handle calling hash()/inserting a bridged object into a dictionary"""
         remote_datetime = self.test_bridge.remote_import("datetime")
         td1 = remote_datetime.timedelta(1)
         td2 = remote_datetime.timedelta(2)
@@ -484,12 +484,12 @@ class TestBridge(unittest.TestCase):
         d[td1] = "a"
         d[td2] = "b"
 
-        self.assertEquals(d[remote_datetime.timedelta(1)], "a")
-        self.assertEquals(d[remote_datetime.timedelta(2)], "b")
+        self.assertEqual(d[remote_datetime.timedelta(1)], "a")
+        self.assertEqual(d[remote_datetime.timedelta(2)], "b")
 
     @print_stats
     def test_unhashable(self):
-        """ Test that we don't magically hash unhashable objects """
+        """Test that we don't magically hash unhashable objects"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
         with self.assertRaises(TypeError):
@@ -497,7 +497,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_slicing(self):
-        """ Test we can slice bridged objects """
+        """Test we can slice bridged objects"""
         mod = self.test_bridge.remote_import("__main__")
         remote_bytearray = mod.__builtins__.bytearray
 
@@ -506,28 +506,28 @@ class TestBridge(unittest.TestCase):
         ba = remote_bytearray(test)
 
         # single start slice
-        self.assertEquals(list(ba[2:]), test[2:])
+        self.assertEqual(list(ba[2:]), test[2:])
 
         # single stop slice
-        self.assertEquals(list(ba[:4]), test[:4])
+        self.assertEqual(list(ba[:4]), test[:4])
 
         # single step slice
-        self.assertEquals(list(ba[::-1]), test[::-1])
+        self.assertEqual(list(ba[::-1]), test[::-1])
 
         # negative indices
-        self.assertEquals(list(ba[:-1]), test[:-1])
+        self.assertEqual(list(ba[:-1]), test[:-1])
 
         # all together now
-        self.assertEquals(list(ba[1:4:-1]), test[1:4:-1])
+        self.assertEqual(list(ba[1:4:-1]), test[1:4:-1])
 
         # make sure we can set with a slice as well
         ba[1:4] = [0]
         test[1:4] = [0]
-        self.assertEquals(list(ba), test)
+        self.assertEqual(list(ba), test)
 
     @print_stats
     def test_remote_inheritance(self):
-        """ check that we can inherit from a remote type """
+        """check that we can inherit from a remote type"""
         remote_collections = self.test_bridge.remote_import("collections")
         remote_deque = remote_collections.deque
 
@@ -542,11 +542,11 @@ class TestBridge(unittest.TestCase):
                 self.called = True
 
         nd = new_deque("test")
-        self.assertEquals(nd.test, "test")
+        self.assertEqual(nd.test, "test")
 
         nd.append(1)
         self.assertTrue(nd.called)
-        self.assertEquals(nd.pop(), 1)
+        self.assertEqual(nd.pop(), 1)
 
         self.assertTrue(
             not isinstance(nd.append, bridge.BridgedCallable),
@@ -556,16 +556,14 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_nonreturn(self):
-        """ Test we can call a bridged function as non-returning
-        """
+        """Test we can call a bridged function as non-returning"""
         remote_time = self.test_bridge.remote_import("time")
         # would expect this to timeout - but instead should send off and keep going
         remote_time.sleep._bridge_call_nonreturn(10)
 
     @print_stats
     def test_nonreturn_doesnt_respond(self):
-        """ Test that a nonreturn call doesn't cause a response to show up
-        """
+        """Test that a nonreturn call doesn't cause a response to show up"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
         # let any responses in flight trickle home
@@ -583,16 +581,14 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_nonreturn_marker_remote(self):
-        """ Test that a callable marked as nonreturn doesn't return when called normally
-        """
+        """Test that a callable marked as nonreturn doesn't return when called normally"""
         remote_main = self.test_bridge.remote_import("__main__")
         # would normally time out
         remote_main.nonreturn()
 
     @print_stats
     def test_nonreturn_marker_local(self):
-        """ Test that a callable marked as nonreturn doesn't return when called normally from the other side of the bridge
-        """
+        """Test that a callable marked as nonreturn doesn't return when called normally from the other side of the bridge"""
 
         class Callback:
             called = False
@@ -605,14 +601,16 @@ class TestBridge(unittest.TestCase):
 
         c = Callback()
 
+        # TODO known issue when server is 3.11 - this will get a timeout. Unknown why
         self.test_bridge.remote_eval("c.callback()", c=c, timeout_override=1)
+
         # pause to let the callback land
         time.sleep(1)
         self.assertTrue(c.called)
 
     @print_stats
     def test_remoteify_simple_function(self):
-        """ Test that we can remoteify a simple function """
+        """Test that we can remoteify a simple function"""
 
         def foobar():
             return True
@@ -623,17 +621,17 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remoteify_unindented(self):
-        """ Test that we can remoteify a function that isn't indented"""
+        """Test that we can remoteify a function that isn't indented"""
 
         remote_unindented_function = self.test_bridge.remoteify(
-            test_unindented_function
+            sample_test_unindented_function
         )
 
-        self.assertEquals(50, remote_unindented_function())
+        self.assertEqual(50, remote_unindented_function())
 
     @print_stats
     def test_remoteify_same_names(self):
-        """ Test that we can remoteify some functions with the same name """
+        """Test that we can remoteify some functions with the same name"""
 
         def foobar():
             return 10
@@ -645,33 +643,33 @@ class TestBridge(unittest.TestCase):
 
         remote_foobar20 = self.test_bridge.remoteify(foobar)
 
-        self.assertEquals(10, remote_foobar10())
-        self.assertEquals(20, remote_foobar20())
+        self.assertEqual(10, remote_foobar10())
+        self.assertEqual(20, remote_foobar20())
 
     @print_stats
     def test_remoteify_function_with_args(self):
-        """ Test that we can remoteify a function that takes arguments """
+        """Test that we can remoteify a function that takes arguments"""
 
         def square(value):
             return value * value
 
         remote_square = self.test_bridge.remoteify(square)
 
-        self.assertEquals(4, remote_square(2))
+        self.assertEqual(4, remote_square(2))
 
     @print_stats
     def test_remoteify_function_with_kwargs(self):
-        """ Test that we can remoteify a function and supply kwargs to the definition """
+        """Test that we can remoteify a function and supply kwargs to the definition"""
 
         def flam():
             return defined_value
 
         remote_flam = self.test_bridge.remoteify(flam, defined_value=30)
-        self.assertEquals(30, remote_flam())
+        self.assertEqual(30, remote_flam())
 
     @print_stats
     def test_remoteify_function_with_imports(self):
-        """ Test that we can remoteify a function that uses imported modules """
+        """Test that we can remoteify a function that uses imported modules"""
 
         def importer(val):
             from collections import deque
@@ -681,11 +679,11 @@ class TestBridge(unittest.TestCase):
             return d
 
         remote_importer = self.test_bridge.remoteify(importer)
-        self.assertEquals(10, remote_importer(10).pop())
+        self.assertEqual(10, remote_importer(10).pop())
 
     @print_stats
     def test_remoteify_class(self):
-        """ Test that we can remoteify a class """
+        """Test that we can remoteify a class"""
 
         class CLZ:
             def __init__(self, val):
@@ -694,11 +692,11 @@ class TestBridge(unittest.TestCase):
         remote_clz = self.test_bridge.remoteify(CLZ)
 
         rc = remote_clz(20)
-        self.assertEquals(20, rc.val)
+        self.assertEqual(20, rc.val)
 
     @print_stats
     def test_remoteify_class_with_inheritance(self):
-        """ Test that we can remoteify a class that inherits from a remote class """
+        """Test that we can remoteify a class that inherits from a remote class"""
         remote_deque = (
             object  # lie to inspect locally that we're just inheriting from object
         )
@@ -721,11 +719,11 @@ class TestBridge(unittest.TestCase):
         )
 
         nd = remote_new_deque("test")
-        self.assertEquals(nd.test, "test")
+        self.assertEqual(nd.test, "test")
 
         nd.append(1)
         self.assertTrue(nd.called)
-        self.assertEquals(nd.pop(), 1)
+        self.assertEqual(nd.pop(), 1)
 
         self.assertTrue(
             isinstance(nd.append, bridge.BridgedCallable),
@@ -735,15 +733,15 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remoteify_module(self):
-        """ Check we can remoteify a module """
+        """Check we can remoteify a module"""
         remote_test_module = self.test_bridge.remoteify(test_module)
         remote_sys = self.test_bridge.remote_import("sys")
-        self.assertEquals(remote_sys.version_info[0], remote_test_module.run())
+        self.assertEqual(remote_sys.version_info[0], remote_test_module.run())
 
     @print_stats
     def test_unicode_strings_only_when_required(self):
-        """ Moving away from old behaviour of forcing all strings across the bridge into python 2 to be unicode
-            Instead, they'll now be forced to unicode, then attempt to drop back to plain strings. """
+        """Moving away from old behaviour of forcing all strings across the bridge into python 2 to be unicode
+        Instead, they'll now be forced to unicode, then attempt to drop back to plain strings."""
         remote_sys = self.test_bridge.remote_import("sys")
         remote_python_version = remote_sys.version_info[0]
         local_python_version = sys.version_info[0]
@@ -788,7 +786,7 @@ class TestBridge(unittest.TestCase):
 
 
 class TestBridgeHookImport(unittest.TestCase):
-    """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
+    """Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
 
     @classmethod
     def setUpClass(cls):
@@ -802,7 +800,7 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_top_level(self):
-        """ Test that we handle import x syntax """
+        """Test that we handle import x syntax"""
         import test_hook_import_top_level
 
         remote_name = str(test_hook_import_top_level)
@@ -813,7 +811,7 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_dotted(self):
-        """ Test that we handle import x.y syntax """
+        """Test that we handle import x.y syntax"""
         import test_hook_import_dotted.child
 
         remote_name = str(test_hook_import_dotted.child)
@@ -824,7 +822,7 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_from_syntax(self):
-        """ Test that we handle from x import y syntax """
+        """Test that we handle from x import y syntax"""
         from test_hook_import_from import run_server
 
         remote_name = str(run_server)
@@ -834,13 +832,13 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_nonexistent(self):
-        """ Test that we handle a nonexistent import """
+        """Test that we handle a nonexistent import"""
         with self.assertRaises(ImportError):
             import foobar
 
     @print_stats
     def test_hook_import_as(self):
-        """ Test that we don't break import x as y syntax """
+        """Test that we don't break import x as y syntax"""
         import test_hook_import_as as thia
 
         remote_name = str(thia)
@@ -850,7 +848,7 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_force_import(self):
-        """ Test that we actually import something that's not loaded"""
+        """Test that we actually import something that's not loaded"""
         remote_sys = self.test_bridge.remote_import("sys")
         remote_python_version = remote_sys.version_info[0]
         local_python_version = sys.version_info[0]
@@ -881,17 +879,19 @@ class TestBridgeHookImport(unittest.TestCase):
 
     @print_stats
     def test_local_import(self):
-        """ Make sure a local import is resolved locally, not pulled in remotely """
-        self.assertTrue("ast" not in sys.modules)
-        import ast
+        """Make sure a local import is resolved locally, not pulled in remotely"""
+        self.assertTrue(
+            "antigravity" not in sys.modules
+        )  # check to make sure our target hasn't already been imported
+        import antigravity
 
-        name = str(ast)
-        self.assertTrue("BridgedModule" not in name and "ast" in name)
+        name = str(antigravity)
+        self.assertTrue("BridgedModule" not in name and "antigravity" in name)
 
     @print_stats
     def test_hook_import_nonmodule(self):
-        """ Test we can import nonmodules like modules (e.g., java classes from jython). But mostly so we can test 
-            reimporting
+        """Test we can import nonmodules like modules (e.g., java classes from jython). But mostly so we can test
+        reimporting
         """
         import test_hook_import_nonmodule
 
@@ -902,11 +902,11 @@ class TestBridgeHookImport(unittest.TestCase):
 
 
 class TestBridgeHookImportReimport(unittest.TestCase):
-    """ 
+    """
     Test the case of a separate client importing the same module as a previous client.
     Because the modules are only imported once in the server, if the first client sets objects on the remote module
     (e.g., __spec__), the second client will get old/unknown handle.
-    
+
     Assumes there's a bridge server running at DEFAULT_SERVER_PORT.
     """
 
@@ -930,7 +930,7 @@ class TestBridgeHookImportReimport(unittest.TestCase):
 
     @print_stats
     def test_hook_import_nonmodule_again(self):
-        """ If this fails with old/unknown handle, __spec__ has been set by the old client """
+        """If this fails with old/unknown handle, __spec__ has been set by the old client"""
         # clear out our old import
         del sys.modules["test_hook_import_nonmodule"]
 
@@ -943,7 +943,7 @@ class TestBridgeHookImportReimport(unittest.TestCase):
 
 
 class TestBridgeZZZZZZZShutdown(unittest.TestCase):
-    """ Assumes there's a bridge server running at DEFAULT_SERVER_PORT. Needs to run last, nothing will work after this"""
+    """Assumes there's a bridge server running at DEFAULT_SERVER_PORT. Needs to run last, nothing will work after this"""
 
     @classmethod
     def setUpClass(cls):
