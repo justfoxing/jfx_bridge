@@ -27,7 +27,7 @@ import random
 import textwrap
 import types
 
-__version__ = "0.9.1"  # automatically patched by setup.py when packaging
+__version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
 # from six.py's strategy
 INTEGER_TYPES = None
@@ -380,7 +380,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     result = self.bridge_conn.handle_command(
                         cmd, want_response=want_response
                     )
-                except Exception as e:
+                except EXCEPTION_TYPES as e:
                     self.bridge_conn.logger.error(
                         "Unexpected exception for {}: {}\n{}".format(
                             cmd, e, traceback.format_exc()
@@ -523,7 +523,7 @@ class BridgeReceiverThread(threading.Thread):
                     self.bridge_conn.send_data(
                         BridgeReceiverThread.ERROR_UNSUPPORTED_VERSION
                     )
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 # eat exceptions and continue, don't want a bad message killing the recv loop
                 self.bridge_conn.logger.exception(e)
 
@@ -553,7 +553,7 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
             self.server.bridge.shutdown()
         except (BridgeClosedException, ConnectionResetError):
             pass  # expected - the client has closed the connection
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             # something weird went wrong?
             self.server.bridge.logger.exception(e)
         finally:
@@ -1001,7 +1001,7 @@ class BridgeConn(object):
         target = self.get_object_by_handle(handle)
         try:
             result = getattr(target, name)
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1028,7 +1028,7 @@ class BridgeConn(object):
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_set: {}.{} = {}".format(handle, name, value))
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1044,7 +1044,7 @@ class BridgeConn(object):
         result = None
         try:
             result = setattr(target, name, value)
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()  # TODO - this and other tracebacks, log with info about what's happening
 
@@ -1092,7 +1092,7 @@ class BridgeConn(object):
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_call: {}({},{})".format(handle, args, kwargs))
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1156,7 +1156,7 @@ class BridgeConn(object):
         result = None
         try:
             result = importlib.import_module(name)
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1177,7 +1177,7 @@ class BridgeConn(object):
 
         try:
             result = type(target_obj)
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1212,7 +1212,7 @@ class BridgeConn(object):
                 self.logger.debug(
                     "local_create_type {}, {}, {}".format(name, bases, dct)
                 )
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1228,7 +1228,7 @@ class BridgeConn(object):
 
         try:
             result = type(name, bases, dct)
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1293,7 +1293,7 @@ class BridgeConn(object):
                 self.logger.debug(
                     "local_isinstance({},{})".format(test_object, check_class_tuple)
                 )
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1344,7 +1344,7 @@ class BridgeConn(object):
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_eval({},{})".format(args[EXPR], args[KWARGS]))
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1367,7 +1367,7 @@ class BridgeConn(object):
                     self, eval_expr, eval_globals, eval_locals
                 )
             self.logger.debug("local_eval: Finished evaluating")
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1400,7 +1400,7 @@ class BridgeConn(object):
                 # but this also means a bad repr can break things. So we get ready to
                 # catch that and fallback to undeserialized values
                 self.logger.debug("local_exec({},{})".format(args[EXPR], args[KWARGS]))
-            except Exception as e:
+            except EXCEPTION_TYPES as e:
                 self.logger.debug(
                     "Failed to log deserialized arguments: {}\n{}".format(
                         e, traceback.format_exc()
@@ -1422,7 +1422,7 @@ class BridgeConn(object):
             else:
                 self.local_exec_hook(self, exec_expr, exec_globals)
             self.logger.debug("local_exec: Finished executing")
-        except Exception as e:
+        except EXCEPTION_TYPES as e:
             result = e
             traceback.print_exc()
 
@@ -1566,7 +1566,7 @@ class BridgeConn(object):
             "instancemethod",
             "method_descriptor",
             "wrapper_descriptor",
-            "reflectedfunction", # jython - e.g. jarray.zeros()
+            "reflectedfunction",  # jython - e.g. jarray.zeros()
         ]:
             return BridgedCallable
         elif type_name in ["module", "javapackage"]:
