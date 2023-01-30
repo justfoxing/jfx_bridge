@@ -34,7 +34,7 @@ def print_stats(func):
     return wrapper
 
 
-def test_unindented_function():
+def sample_test_unindented_function():
     """ Test function used to remoteify to make sure we can still send unindented stuff """
     return 50
 
@@ -372,7 +372,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_eval(self):
-        self.assertEquals(3, self.test_bridge.remote_eval("1+2"))
+        self.assertEqual(3, self.test_bridge.remote_eval("1+2"))
 
     @print_stats
     def test_remote_eval_bad_code(self):
@@ -381,7 +381,7 @@ class TestBridge(unittest.TestCase):
 
     @print_stats
     def test_remote_eval_kwargs(self):
-        self.assertEquals(3, self.test_bridge.remote_eval("x+y", x=1, y=2))
+        self.assertEqual(3, self.test_bridge.remote_eval("x+y", x=1, y=2))
 
     @print_stats
     def test_remote_eval_timeout(self):
@@ -407,8 +407,8 @@ class TestBridge(unittest.TestCase):
 
         self.assertTrue(td1 < td2)
         self.assertTrue(td2 >= td1)
-        self.assertEquals(remote_datetime.timedelta(3), td1 + td2)
-        self.assertEquals(td1, td2 // 2)  # we use floordiv here, truediv tested below
+        self.assertEqual(remote_datetime.timedelta(3), td1 + td2)
+        self.assertEqual(td1, td2 // 2)  # we use floordiv here, truediv tested below
 
     @print_stats
     def test_truediv(self):
@@ -417,7 +417,7 @@ class TestBridge(unittest.TestCase):
         remote_datetime = self.test_bridge.remote_import("datetime")
         td1 = remote_datetime.timedelta(1)
         td2 = remote_datetime.timedelta(2)
-        self.assertEquals(td1, td2 / 2)
+        self.assertEqual(td1, td2 / 2)
 
     @print_stats
     def test_len(self):
@@ -427,7 +427,7 @@ class TestBridge(unittest.TestCase):
         dq.append(1)
         dq.append(2)
         dq.append(3)
-        self.assertEquals(3, len(dq))
+        self.assertEqual(3, len(dq))
 
     @print_stats
     def test_bool(self):
@@ -463,9 +463,9 @@ class TestBridge(unittest.TestCase):
 
         if sys.version_info[0] == 2:
             # bytes() == str() in py 2
-            self.assertEquals(bytes(dq), "deque([1])")
+            self.assertEqual(bytes(dq), "deque([1])")
         else:
-            self.assertEquals(bytes(dq), b"\x01")
+            self.assertEqual(bytes(dq), b"\x01")
 
     @print_stats
     def test_hash(self):
@@ -484,8 +484,8 @@ class TestBridge(unittest.TestCase):
         d[td1] = "a"
         d[td2] = "b"
 
-        self.assertEquals(d[remote_datetime.timedelta(1)], "a")
-        self.assertEquals(d[remote_datetime.timedelta(2)], "b")
+        self.assertEqual(d[remote_datetime.timedelta(1)], "a")
+        self.assertEqual(d[remote_datetime.timedelta(2)], "b")
 
     @print_stats
     def test_unhashable(self):
@@ -506,24 +506,24 @@ class TestBridge(unittest.TestCase):
         ba = remote_bytearray(test)
 
         # single start slice
-        self.assertEquals(list(ba[2:]), test[2:])
+        self.assertEqual(list(ba[2:]), test[2:])
 
         # single stop slice
-        self.assertEquals(list(ba[:4]), test[:4])
+        self.assertEqual(list(ba[:4]), test[:4])
 
         # single step slice
-        self.assertEquals(list(ba[::-1]), test[::-1])
+        self.assertEqual(list(ba[::-1]), test[::-1])
 
         # negative indices
-        self.assertEquals(list(ba[:-1]), test[:-1])
+        self.assertEqual(list(ba[:-1]), test[:-1])
 
         # all together now
-        self.assertEquals(list(ba[1:4:-1]), test[1:4:-1])
+        self.assertEqual(list(ba[1:4:-1]), test[1:4:-1])
 
         # make sure we can set with a slice as well
         ba[1:4] = [0]
         test[1:4] = [0]
-        self.assertEquals(list(ba), test)
+        self.assertEqual(list(ba), test)
 
     @print_stats
     def test_remote_inheritance(self):
@@ -542,11 +542,11 @@ class TestBridge(unittest.TestCase):
                 self.called = True
 
         nd = new_deque("test")
-        self.assertEquals(nd.test, "test")
+        self.assertEqual(nd.test, "test")
 
         nd.append(1)
         self.assertTrue(nd.called)
-        self.assertEquals(nd.pop(), 1)
+        self.assertEqual(nd.pop(), 1)
 
         self.assertTrue(
             not isinstance(nd.append, bridge.BridgedCallable),
@@ -626,10 +626,10 @@ class TestBridge(unittest.TestCase):
         """ Test that we can remoteify a function that isn't indented"""
 
         remote_unindented_function = self.test_bridge.remoteify(
-            test_unindented_function
+            sample_test_unindented_function
         )
 
-        self.assertEquals(50, remote_unindented_function())
+        self.assertEqual(50, remote_unindented_function())
 
     @print_stats
     def test_remoteify_same_names(self):
@@ -645,8 +645,8 @@ class TestBridge(unittest.TestCase):
 
         remote_foobar20 = self.test_bridge.remoteify(foobar)
 
-        self.assertEquals(10, remote_foobar10())
-        self.assertEquals(20, remote_foobar20())
+        self.assertEqual(10, remote_foobar10())
+        self.assertEqual(20, remote_foobar20())
 
     @print_stats
     def test_remoteify_function_with_args(self):
@@ -657,7 +657,7 @@ class TestBridge(unittest.TestCase):
 
         remote_square = self.test_bridge.remoteify(square)
 
-        self.assertEquals(4, remote_square(2))
+        self.assertEqual(4, remote_square(2))
 
     @print_stats
     def test_remoteify_function_with_kwargs(self):
@@ -667,7 +667,7 @@ class TestBridge(unittest.TestCase):
             return defined_value
 
         remote_flam = self.test_bridge.remoteify(flam, defined_value=30)
-        self.assertEquals(30, remote_flam())
+        self.assertEqual(30, remote_flam())
 
     @print_stats
     def test_remoteify_function_with_imports(self):
@@ -681,7 +681,7 @@ class TestBridge(unittest.TestCase):
             return d
 
         remote_importer = self.test_bridge.remoteify(importer)
-        self.assertEquals(10, remote_importer(10).pop())
+        self.assertEqual(10, remote_importer(10).pop())
 
     @print_stats
     def test_remoteify_class(self):
@@ -694,7 +694,7 @@ class TestBridge(unittest.TestCase):
         remote_clz = self.test_bridge.remoteify(CLZ)
 
         rc = remote_clz(20)
-        self.assertEquals(20, rc.val)
+        self.assertEqual(20, rc.val)
 
     @print_stats
     def test_remoteify_class_with_inheritance(self):
@@ -721,11 +721,11 @@ class TestBridge(unittest.TestCase):
         )
 
         nd = remote_new_deque("test")
-        self.assertEquals(nd.test, "test")
+        self.assertEqual(nd.test, "test")
 
         nd.append(1)
         self.assertTrue(nd.called)
-        self.assertEquals(nd.pop(), 1)
+        self.assertEqual(nd.pop(), 1)
 
         self.assertTrue(
             isinstance(nd.append, bridge.BridgedCallable),
@@ -738,7 +738,7 @@ class TestBridge(unittest.TestCase):
         """ Check we can remoteify a module """
         remote_test_module = self.test_bridge.remoteify(test_module)
         remote_sys = self.test_bridge.remote_import("sys")
-        self.assertEquals(remote_sys.version_info[0], remote_test_module.run())
+        self.assertEqual(remote_sys.version_info[0], remote_test_module.run())
 
     @print_stats
     def test_unicode_strings_only_when_required(self):
