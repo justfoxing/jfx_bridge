@@ -6,7 +6,12 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 # determine the version, then write it out into the bridge.py file
-version = subprocess.check_output("git describe", shell=True).decode("utf-8").strip()
+version = subprocess.check_output("git describe --tags", shell=True).decode("utf-8").strip()
+# check if this is a non-tag release and remark it as a dev release
+if "-" in version:
+    ver, commits, hash = version.split("-")
+    version = ver + ".dev" + commits
+
 bridge_file_path = os.path.join(os.path.dirname(__file__), "jfx_bridge", "bridge.py")
 bridge_data = None
 with open(bridge_file_path, "r") as bridge_file:
