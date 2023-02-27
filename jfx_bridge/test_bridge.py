@@ -10,6 +10,7 @@ import time
 import sys
 import os
 import functools
+from collections import OrderedDict
 import cProfile
 import pstats
 
@@ -49,7 +50,6 @@ class TestBridge(unittest.TestCase):
         # setup cprofile to profile (most) of the tests
         cls.pr = cProfile.Profile()
         cls.pr.enable()
-
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
@@ -64,7 +64,6 @@ class TestBridge(unittest.TestCase):
                 "TestBridge Total", cls.test_bridge.get_stats() - cls.total_start_stats
             )
         )
-
         p = pstats.Stats(cls.pr)
         p.sort_stats("cumulative")
         p.print_stats()
@@ -262,7 +261,7 @@ class TestBridge(unittest.TestCase):
         mod = self.test_bridge.remote_import("__main__")
         remote_sorted = mod.__builtins__.sorted
 
-        test_list = ["aaa", "bb", "c"]
+        test_list = ["aaa", "bb", "xxxx", "c"]
         sorted_list = remote_sorted(test_list, key=sort_fn)
 
         self.assertEqual(sorted(test_list, key=sort_fn), sorted_list)
@@ -792,6 +791,927 @@ class TestBridge(unittest.TestCase):
             # same versions, can't think of anything useful to test load
             self.skipTest("Test irrelevant for matched versions")
 
+    @print_stats
+    def test_mutable_list_set_index(self):
+        # __setitem__
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list[0] = 2
+
+        def remote_list_set_index(target_list, index, new_val):
+            target_list[index] = new_val
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_set_index)(
+            local_test_list, 0, 2
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_subclass(self):
+        # check we still work for something that subclasses from list
+        class List2(list):
+            pass
+
+        match_list = List2([3, 6, 7, 3])
+        local_test_list = List2(match_list)
+        match_list[0] = 2
+
+        def remote_list_set_index(target_list, index, new_val):
+            target_list[index] = new_val
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_set_index)(
+            local_test_list, 0, 2
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_append(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list.append(1)
+
+        def remote_list_append(target_list, new_val):
+            target_list.append(new_val)
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_append)(
+            local_test_list, 1
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_extend(self):
+        match_list = [3, 6, 7, 3]
+        extra_list = [1, 0, 9]
+        local_test_list = list(match_list)
+        match_list.extend(extra_list)
+
+        def remote_list_extend(target_list, new_list):
+            target_list.extend(new_list)
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_extend)(
+            local_test_list, extra_list
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_clear(self):
+        remote_sys = self.test_bridge.remote_import("sys")
+        remote_python_version = remote_sys.version_info[0]
+        local_python_version = sys.version_info[0]
+        # not relevant for 2->2 setups - they don't have list.clear on either side
+        if local_python_version == 2 and remote_python_version == 2:
+            self.skipTest("Test irrelevant for non python 3 setups")
+
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list = (
+            []
+        )  # manually clear it, so we can test on 2->3 setups where we don't have list.clear here
+
+        def remote_list_clear(target_list):
+            target_list.clear()
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_clear)(local_test_list)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_insert(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list.insert(2, 3)
+
+        def remote_list_insert(target_list, index, new_val):
+            target_list.insert(index, new_val)
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_insert)(
+            local_test_list, 2, 3
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_del(self):
+        # __delitem__
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        del match_list[2]
+
+        def remote_list_del(target_list, index):
+            del target_list[index]
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_del)(local_test_list, 2)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_remove(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list.remove(6)
+
+        def remote_list_remove(target_list, val):
+            target_list.remove(val)
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_remove)(
+            local_test_list, 6
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_pop(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_val = match_list.pop()
+
+        def remote_list_pop(target_list):
+            val = target_list.pop()
+            return target_list, val
+
+        remote_result, remote_val = self.test_bridge.remoteify(remote_list_pop)(
+            local_test_list
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+        self.assertEqual(
+            match_val, remote_val, "Local popped value didn't match remote popped value"
+        )
+
+    @print_stats
+    def test_mutable_list_delslice(self):
+        """Testing because py2 has a __delslice__ function that py3 doesn't"""
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        del match_list[2:3]
+
+        def remote_list_delslice(target_list, slice_start, slice_end):
+            del target_list[slice_start:slice_end]
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_delslice)(
+            local_test_list, 2, 3
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_setslice(self):
+        """Testing because py2 has a __setslice__ function that py3 doesn't"""
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list[2:4] = [4, 1]
+
+        def remote_list_setslice(target_list, slice_start, slice_end, new_vals):
+            target_list[slice_start:slice_end] = new_vals
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_setslice)(
+            local_test_list, 2, 4, [4, 1]
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_getslice(self):
+        """Testing because py2 has a __getslice__ function that py3 doesn't"""
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_slice = match_list[2:4]
+
+        def remote_list_getslice(target_list, slice_start, slice_end):
+            return target_list, target_list[slice_start:slice_end]
+
+        remote_result, remote_slice = self.test_bridge.remoteify(remote_list_getslice)(
+            local_test_list, 2, 4
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(match_slice, remote_slice, "Local slice didn't match target")
+
+    @print_stats
+    def test_mutable_list_reverse(self):
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list.reverse()
+
+        def remote_list_reverse(target_list):
+            target_list.reverse()
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_reverse)(local_test_list)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_sort(self):
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list.sort()
+
+        def remote_list_sort(target_list):
+            target_list.sort()
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_sort)(local_test_list)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_iadd(self):
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list += [4, 5]
+
+        def remote_list_iadd(target_list, additional):
+            target_list += additional
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_iadd)(
+            local_test_list, [4, 5]
+        )
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_imul(self):
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list *= 2
+
+        def remote_list_imul(target_list, val):
+            target_list *= val
+            return target_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_imul)(local_test_list, 2)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_sorted(self):
+        # Check that sorted() doesn't mutate
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        sorted_match_list = sorted(match_list)
+
+        def remote_list_sorted(target_list):
+            sorted_list = sorted(target_list)
+            return target_list, sorted_list
+
+        remote_list_result, remote_sorted_list = self.test_bridge.remoteify(
+            remote_list_sorted
+        )(local_test_list)
+
+        self.assertEqual(
+            match_list, remote_list_result, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            sorted_match_list, remote_sorted_list, "Local sort didn't match target"
+        )
+
+    @print_stats
+    def test_mutable_list_in(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list.remove(6)
+
+        def remote_list_in(target_list, val):
+            init = val in target_list
+            target_list.remove(val)
+            post = val in target_list
+            return target_list, init, post
+
+        remote_result_list, init, post = self.test_bridge.remoteify(remote_list_in)(
+            local_test_list, 6
+        )
+
+        self.assertEqual(
+            match_list, remote_result_list, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+        self.assertTrue(init, "Remote didn't find val as expected")
+        self.assertFalse(post, "Remote found val unexpectedly after removal")
+
+    @print_stats
+    def test_mutable_list_get_after_mutate(self):
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+        match_list[0] = 2
+
+        def remote_list_set_index(target_list, index, new_val):
+            target_list[index] = new_val
+            return target_list, target_list[index]
+
+        remote_result_list, remote_result_value = self.test_bridge.remoteify(
+            remote_list_set_index
+        )(local_test_list, 0, 2)
+
+        self.assertEqual(
+            match_list, remote_result_list, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            match_list[0],
+            remote_result_value,
+            "Updated value from remote didn't match target",
+        )
+
+    @print_stats
+    def test_mutable_list_remote(self):
+        # also tests __iter__
+        match_list = [3, 6, 7, 3]
+        local_test_list = list(match_list)
+
+        def remote_list_create(target_list):
+            new_list = []
+            for x in target_list:
+                new_list.append(x)
+
+            return new_list
+
+        remote_result = self.test_bridge.remoteify(remote_list_create)(local_test_list)
+
+        self.assertEqual(match_list, remote_result, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_copy(self):
+        remote_sys = self.test_bridge.remote_import("sys")
+        remote_python_version = remote_sys.version_info[0]
+        local_python_version = sys.version_info[0]
+
+        # not relevant for 2->2 setups - they don't have list.copy on either side
+        if local_python_version == 2 and remote_python_version == 2:
+            self.skipTest("Test irrelevant for non python 3 setups")
+
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+
+        def remote_list_copy(target_list):
+            copied_list = target_list.copy()
+            return target_list, copied_list
+
+        remote_list_result, remote_copied_list = self.test_bridge.remoteify(
+            remote_list_copy
+        )(local_test_list)
+
+        self.assertEqual(
+            match_list, remote_list_result, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            local_test_list, remote_copied_list, "Local list didn't match remote copy"
+        )
+
+    @print_stats
+    def test_mutable_list_count(self):
+        match_list = [3, 6, 7, 3, 5]
+        pre_count = match_list.count(3)
+        local_test_list = list(match_list)
+        match_list[0] = 2
+        post_count = match_list.count(3)
+
+        def remote_list_count(target_list, val):
+            pre_count = target_list.count(val)
+            target_list[0] = 2
+            post_count = target_list.count(val)
+            return target_list, pre_count, post_count
+
+        (
+            remote_list_result,
+            remote_pre_count,
+            remote_post_count,
+        ) = self.test_bridge.remoteify(remote_list_count)(local_test_list, 3)
+
+        self.assertEqual(
+            match_list, remote_list_result, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            pre_count,
+            remote_pre_count,
+            "Local pre-mod count didn't match remote pre-mod count",
+        )
+        self.assertEqual(
+            post_count,
+            remote_post_count,
+            "Local pre-mod count didn't match remote pre-mod count",
+        )
+
+    @print_stats
+    def test_mutable_list_len(self):
+        match_list = [3, 6, 7, 3, 5]
+        pre_len = len(match_list)
+        local_test_list = list(match_list)
+        match_list.pop()
+        post_len = len(match_list)
+
+        def remote_list_len(target_list):
+            pre_len = len(target_list)
+            target_list.pop()
+            post_len = len(target_list)
+            return target_list, pre_len, post_len
+
+        (
+            remote_list_result,
+            remote_pre_len,
+            remote_post_len,
+        ) = self.test_bridge.remoteify(remote_list_len)(local_test_list)
+
+        self.assertEqual(
+            match_list, remote_list_result, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            pre_len, remote_pre_len, "Local pre-mod len didn't match remote pre-mod len"
+        )
+        self.assertEqual(
+            post_len,
+            remote_post_len,
+            "Local pre-mod len didn't match remote pre-mod len",
+        )
+
+    @print_stats
+    def test_mutable_list_unpacking(self):
+        """Make sure we can unpack the mutable dict with * (e.g., if we're using it as args)"""
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+
+        def remote_list_unpack(target_list):
+            def capture(*args):
+                return args
+
+            return target_list, capture(*target_list)
+
+        remote_list_result, remote_unpacked_tuple = self.test_bridge.remoteify(
+            remote_list_unpack
+        )(local_test_list)
+
+        self.assertEqual(
+            match_list, remote_list_result, "Remote list didn't match target"
+        )
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+        self.assertEqual(
+            local_test_list,
+            list(remote_unpacked_tuple),
+            "Local list didn't match remote unpack",
+        )
+
+    @print_stats
+    def test_mutable_dict_set_key(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict["b"] = 2
+
+        def remote_dict_set_key(target_dict, key, new_val):
+            target_dict[key] = new_val
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_set_key)(
+            local_test_dict, "b", 2
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_get_after_mutate(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict["b"] = 2
+
+        def remote_dict_set_key(target_dict, key, new_val):
+            target_dict[key] = new_val
+            return target_dict, target_dict[key]
+
+        remote_result_dict, remote_result_value = self.test_bridge.remoteify(
+            remote_dict_set_key
+        )(local_test_dict, "b", 2)
+
+        self.assertEqual(
+            match_dict, remote_result_dict, "Remote list didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local list didn't match target")
+
+        self.assertEqual(
+            match_dict["b"],
+            remote_result_value,
+            "Updated value from remote didn't match target",
+        )
+
+    @print_stats
+    def test_mutable_dict_subclass(self):
+        # check we still work for something that subclasses from dict
+        class Dict2(dict):
+            pass
+
+        match_dict = Dict2({"a": 1, "c": 4, "b": 10, "x": 20})
+        local_test_dict = match_dict.copy()
+        match_dict["b"] = 2
+
+        def remote_dict_set_key(target_dict, key, new_val):
+            target_dict[key] = new_val
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_set_key)(
+            local_test_dict, "b", 2
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_setdefault(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict.setdefault("b", 2)  # a change that won't happen
+        match_dict.setdefault("d", 2)  # a change that will happen
+
+        def remote_dict_setdefault(target_dict):
+            # we do two calls here - one that won't happen, and one that will happen. Atm, both are mutating, but just covering a potential future path if we decide to check if setdefault will cause  a mutation
+            target_dict.setdefault("b", 2)  # a change that won't happen
+            target_dict.setdefault("d", 2)  # a change that will happen
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_setdefault)(
+            local_test_dict
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_pop(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        local_result = match_dict.pop("b")
+
+        def remote_dict_pop(target_dict, key):
+            result = target_dict.pop(key)
+            return target_dict, result
+
+        remote_dict, remote_result = self.test_bridge.remoteify(remote_dict_pop)(
+            local_test_dict, "b"
+        )
+
+        self.assertEqual(match_dict, remote_dict, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            local_result, remote_result, "Local result didn't match target"
+        )
+
+    @print_stats
+    def test_mutable_dict_popitem(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        local_result = match_dict.popitem()
+
+        def remote_dict_popitem(target_dict):
+            result = target_dict.popitem()
+            return target_dict, result
+
+        remote_dict, remote_result = self.test_bridge.remoteify(remote_dict_popitem)(
+            local_test_dict
+        )
+
+        self.assertEqual(match_dict, remote_dict, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            local_result, remote_result, "Local result didn't match target"
+        )
+
+    @print_stats
+    def test_mutable_dict_update(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        update_vals = {"b": 3, "d": 4}
+        match_dict.update(update_vals)
+
+        def remote_dict_update(target_dict, new_vals):
+            target_dict.update(new_vals)
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_update)(
+            local_test_dict, update_vals
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_ior(self):
+        remote_sys = self.test_bridge.remote_import("sys")
+        remote_python_version = remote_sys.version_info[0]
+        local_python_version = sys.version_info[0]
+        # not relevant for py2 dicts - dict |= dict isn't valid
+        # but we still want to test with a py3 ior against a bridged py2 dict
+        if remote_python_version == 2:
+            self.skipTest("Python2 doesn't support dict |= dict")
+
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        update_vals = {"b": 3, "d": 4}
+        match_dict.update(update_vals)  # same affect as ior
+
+        def remote_dict_ior(target_dict, new_vals):
+            # only valid in remote py3, against a py3 or py2 list
+            target_dict |= new_vals
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_ior)(
+            local_test_dict, update_vals
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_clear(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict.clear()
+
+        def remote_dict_clear(target_dict):
+            target_dict.clear()
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_clear)(local_test_dict)
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_del(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        del match_dict["c"]
+
+        def remote_dict_del(target_dict, key):
+            del target_dict[key]
+            return target_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_del)(
+            local_test_dict, "c"
+        )
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_in(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        del match_dict["c"]
+
+        def remote_dict_in(target_dict, key):
+            init = key in target_dict
+            del target_dict[key]
+            post = key in target_dict
+            return target_dict, init, post
+
+        remote_result_list, init, post = self.test_bridge.remoteify(remote_dict_in)(
+            local_test_dict, "c"
+        )
+
+        self.assertEqual(
+            match_dict, remote_result_list, "Remote dict didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+        self.assertTrue(init, "Remote didn't find key as expected")
+        self.assertFalse(post, "Remote found key unexpectedly after removal")
+
+    @print_stats
+    def test_mutable_dict_has_key(self):
+        # test we map the deprecated py2 has_key to __contains__
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        del match_dict["c"]
+
+        def remote_dict_has_key(target_dict, key):
+            init = target_dict.has_key(key)
+            del target_dict[key]
+            post = target_dict.has_key(key)
+            return target_dict, init, post
+
+        remote_result_list, init, post = self.test_bridge.remoteify(
+            remote_dict_has_key
+        )(local_test_dict, "c")
+
+        self.assertEqual(
+            match_dict, remote_result_list, "Remote dict didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+        self.assertTrue(init, "Remote didn't find key as expected")
+        self.assertFalse(post, "Remote found key unexpectedly after removal")
+
+    @print_stats
+    def test_mutable_dict_len(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        pre_len = len(match_dict)
+        match_dict.pop("b")
+        post_len = len(match_dict)
+
+        def remote_dict_len(target_dict):
+            pre_len = len(target_dict)
+            target_dict.pop("b")
+            post_len = len(target_dict)
+            return target_dict, pre_len, post_len
+
+        (
+            remote_dict_result,
+            remote_pre_len,
+            remote_post_len,
+        ) = self.test_bridge.remoteify(remote_dict_len)(local_test_dict)
+
+        self.assertEqual(
+            match_dict, remote_dict_result, "Remote dict didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            pre_len, remote_pre_len, "Local pre-mod len didn't match remote pre-mod len"
+        )
+        self.assertEqual(
+            post_len,
+            remote_post_len,
+            "Local pre-mod len didn't match remote pre-mod len",
+        )
+
+    @print_stats
+    def test_mutable_dict_remote(self):
+        # also tests items
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+
+        def remote_dict_create(target_dict):
+            new_dict = {k: v for k, v in target_dict.items()}
+
+            return new_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_create)(local_test_dict)
+
+        self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_dict_str_repr(self):
+        # make sure str and repr display what we expect.
+
+        # We use ordereddict to make sure we get our str output the same on both sides
+        match_dict = OrderedDict()
+        match_dict[
+            str("a")
+        ] = 1  # Note: we explicitly use str() here to avoid edge case with py2 where the unicode strings get forced to ascii by the bridge (intended behaviour)
+        match_dict[str("c")] = 4
+        match_dict[str("b")] = 10
+        match_dict[str("x")] = 20
+
+        local_test_dict = match_dict.copy()
+
+        def remote_dict_create(target_dict):
+            from collections import OrderedDict
+
+            new_dict = OrderedDict()
+            for k, v in target_dict.items():
+                new_dict[k] = v
+            return new_dict
+
+        remote_result = self.test_bridge.remoteify(remote_dict_create)(local_test_dict)
+        # str should be the same as the matching dict
+        self.assertEqual(str(match_dict), str(remote_result))
+
+        # repr should look like <BridgedDictProxy(<_bridged_dict('{'a': 1, 'c': 4, 'b': 10, 'x': 20}', type=dict, handle=d1a00ab2-422b-4c6a-ba0d-681cb2d9f675)>, local_cache={'a': 1, 'x': 20, 'c': 4, 'b': 10})> before any modification happens
+        remote_rep = repr(remote_result)
+        self.assertIn("BridgedDictProxy", remote_rep)
+        self.assertIn("'" + str(match_dict) + "'", remote_rep)
+        self.assertIn("local_cache=" + str(match_dict), remote_rep)
+
+        # make a modification to drop the local cache
+        remote_result.pop("a")
+        match_dict.pop("a")
+        self.assertEqual(str(match_dict), str(remote_result))
+
+        remote_rep2 = repr(remote_result)
+        self.assertIn("'" + str(match_dict) + "'", remote_rep2)
+        self.assertIn("local_cache=None", remote_rep2)
+
+    @print_stats
+    def test_mutable_dict_copy(self):
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+
+        def remote_dict_copy(target_dict):
+            copied_dict = target_dict.copy()
+            return target_dict, copied_dict
+
+        remote_dict_result, remote_copied_dict = self.test_bridge.remoteify(
+            remote_dict_copy
+        )(local_test_dict)
+
+        self.assertEqual(
+            match_dict, remote_dict_result, "Remote dict didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            local_test_dict, remote_copied_dict, "Local dict didn't match remote copy"
+        )
+
+    @print_stats
+    def test_mutable_dict_unpacking(self):
+        """Make sure we can unpack the mutable dict with ** (e.g., if we're using it as kwargs)"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+
+        def remote_dict_unpack(target_dict):
+            def capture(**kwargs):
+                return kwargs
+
+            return target_dict, capture(**target_dict)
+
+        remote_dict_result, remote_unpacked_dict = self.test_bridge.remoteify(
+            remote_dict_unpack
+        )(local_test_dict)
+
+        self.assertEqual(
+            match_dict, remote_dict_result, "Remote dict didn't match target"
+        )
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            local_test_dict,
+            remote_unpacked_dict,
+            "Local dict didn't match remote unpack",
+        )
+
+    @print_stats
+    def test_mutable_dict_viewitems(self):
+        """check that we map the deprecated py2 viewitems to items"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+
+        def remote_dict_viewitems(target_dict, key):
+            new_dict = {}
+            for k, v in target_dict.viewitems():
+                new_dict[k] = v
+            return target_dict, new_dict
+
+        remote_dict, remote_result = self.test_bridge.remoteify(remote_dict_viewitems)(
+            local_test_dict, "b"
+        )
+
+        self.assertEqual(match_dict, remote_dict, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(
+            match_dict, remote_result, "Local dict didn't match viewed target"
+        )
+
+
+"""
+dict
+BRIDGED_DICT_READ_METHODS = [, "__eq__", "__getitem__", "__getstate__", "__gt__", "__ge__", "__hash__", "__iter__", "__le__", "__lt__", "__ne__", "__or__", "__reduce__", "__reduce_ex__", "__repr__", "__reversed__", "__ror__", "__sizeof__", "fromkeys", "get", "items", "keys", "values"]
+"""
+
 
 class TestBridgeHookImport(unittest.TestCase):
     """Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
@@ -889,12 +1809,12 @@ class TestBridgeHookImport(unittest.TestCase):
     def test_local_import(self):
         """Make sure a local import is resolved locally, not pulled in remotely"""
         self.assertTrue(
-            "antigravity" not in sys.modules
+            "tarfile" not in sys.modules
         )  # check to make sure our target hasn't already been imported
-        import antigravity
+        import tarfile
 
-        name = str(antigravity)
-        self.assertTrue("BridgedModule" not in name and "antigravity" in name)
+        name = str(tarfile)
+        self.assertTrue("BridgedModule" not in name and "tarfile" in name)
 
     @print_stats
     def test_hook_import_nonmodule(self):

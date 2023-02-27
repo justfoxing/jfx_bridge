@@ -26,8 +26,12 @@ import inspect
 import random
 import textwrap
 import types
+import collections
 
 __version__ = "0.0.0"  # automatically patched by setup.py when packaging
+
+# record the python version we're running locally, for when we need to do 2/3 stuff
+PYTHON_VERSION = sys.version_info[0]
 
 # from six.py's strategy
 INTEGER_TYPES = None
@@ -41,6 +45,7 @@ try:
     STRING_TYPES = (str, unicode)
 except NameError:  # py3 has no unicode
     STRING_TYPES = (str,)
+
 
 # need to pick up java.lang.Throwable as an exception type if we're in a jython context
 EXCEPTION_TYPES = None
@@ -60,7 +65,7 @@ try:
 except ImportError:  # py2 has no enum
     pass
 
-if sys.version_info[0] == 2:
+if PYTHON_VERSION == 2:
     from socket import (
         error as ConnectionError,
     )  # ConnectionError not defined in python2, this is next closest thing
@@ -78,7 +83,7 @@ DEFAULT_SERVER_PORT = 27238  # 0x6a66 = "jf"
 VERSION = "v"
 MAX_VERSION = "max_v"
 MIN_VERSION = "min_v"
-COMMS_VERSION_5 = 5
+COMMS_VERSION_6 = 6
 TYPE = "type"
 VALUE = "value"
 KEY = "key"
@@ -129,9 +134,9 @@ KWARGS = "kwargs"
 
 BRIDGE_PREFIX = "_bridge"
 
-# Comms v5 (alpha) adds slices to the serialization - one day, I'll support backwards compatibility
-MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_5
-MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_5
+# Comms v6 passes handles for dicts and lists to allow them to be remotely mutable - one day, I'll support backwards compatibility
+MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_6
+MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_6
 
 DEFAULT_RESPONSE_TIMEOUT = 2  # seconds
 
@@ -389,7 +394,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
                     result = json.dumps(
                         {
-                            VERSION: COMMS_VERSION_5,
+                            VERSION: COMMS_VERSION_6,
                             TYPE: ERROR,
                             ID: cmd[ID],
                         }
@@ -533,9 +538,8 @@ class BridgeReceiverThread(threading.Thread):
 class BridgeCommandHandler(socketserver.BaseRequestHandler):
     def handle(self):
         """handle a new client connection coming in - continue trying to read/service requests in a loop until we fail to send/recv"""
-        self.server.bridge.logger.warn(
-            "Handling connection from {}".format(self.request.getpeername())
-        )
+        peer = self.request.getpeername()
+        self.server.bridge.logger.warn("Handling connection from {}".format(peer))
         try:
             # run the recv loop directly
             BridgeReceiverThread(
@@ -557,9 +561,10 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
             # something weird went wrong?
             self.server.bridge.logger.exception(e)
         finally:
-            self.server.bridge.logger.warn(
-                "Closing connection from {}".format(self.request.getpeername())
-            )
+            if self.server.bridge is not None:
+                self.server.bridge.logger.warn(
+                    "Closing connection from {}".format(peer)
+                )
             # we're out of the loop now, so the connection object will get told to delete itself, which will remove its references to any objects its holding onto
 
 
@@ -765,7 +770,10 @@ class BridgeConn(object):
                 # remove this entry from the list
                 self.delay_delete_handles.pop(0)
 
-    def serialize_to_dict(self, data):
+    def serialize_to_dict(self, data, mutable=True):
+        """Generate a dictionary representing the data - this will later be converted to JSON
+        For mutable containers (list/dict), if mutable is set to false, they'll be packed as the raw list/dict. If left as default true, they'll also pack a handle so mutating changes can be written back. Any child objects will be serialized with the same mutable value (which may not necessarily be what you want, if you want an immutable list of mutable lists for some reason).
+        """
         serialized_dict = None
 
         # note: this needs to come before int, because apparently bools are instances of int (but not vice versa)
@@ -788,24 +796,42 @@ class BridgeConn(object):
                 TYPE: BYTES,
                 VALUE: base64.b64encode(data).decode("utf-8"),
             }
+        elif isinstance(data, BridgedMutableProxy):
+            # passing back a reference to a list/dict on the other side
+            serialized_dict = {TYPE: BRIDGED, VALUE: data._bridged_obj._bridge_handle}
         elif isinstance(data, list):
             serialized_dict = {
                 TYPE: LIST,
-                VALUE: [self.serialize_to_dict(v) for v in data],
+                ARGS: [
+                    self.serialize_to_dict(v, mutable=mutable) for v in data
+                ],  # as an optimisation, we pass the initial contents of the list - most of the time, this is all we want, and this way we don't have to get each entry individually
             }
+
+            if mutable:
+                serialized_dict[VALUE] = self.create_handle(
+                    data
+                ).to_dict()  # we pass a handle to the list, so we can mutate it from the remote side if needed
         elif isinstance(data, tuple):
             serialized_dict = {
-                TYPE: TUPLE,
+                TYPE: TUPLE,  # tuples aren't mutable, so we don't pass a handle
                 VALUE: [self.serialize_to_dict(v) for v in data],
             }
         elif isinstance(data, dict):
             serialized_dict = {
                 TYPE: DICT,
-                VALUE: [
-                    {KEY: self.serialize_to_dict(k), VALUE: self.serialize_to_dict(v)}
+                ARGS: [
+                    {
+                        KEY: self.serialize_to_dict(k, mutable=mutable),
+                        VALUE: self.serialize_to_dict(v, mutable=mutable),
+                    }
                     for k, v in data.items()
-                ],
+                ],  # as an optimisation, we pass the initial contents of the dict - most of the time, this is all we want, and this way we don't have to get each entry individually
             }
+
+            if mutable:
+                serialized_dict[VALUE] = self.create_handle(
+                    data
+                ).to_dict()  # we pass a handle to the dict, so we can mutate it from the remote side if needed
         elif isinstance(data, slice):
             serialized_dict = {
                 TYPE: SLICE,
@@ -880,17 +906,31 @@ class BridgeConn(object):
         elif serial_dict[TYPE] == BYTES:
             return base64.b64decode(serial_dict[VALUE])
         elif serial_dict[TYPE] == LIST:
-            return [self.deserialize_from_dict(v) for v in serial_dict[VALUE]]
+            local_cache = [self.deserialize_from_dict(v) for v in serial_dict[ARGS]]
+            if VALUE not in serial_dict:
+                # this was explictly serialized as a non-mutable list, so we'll just pass the unpacked list - don't create a bridge handle to allow mutating changes
+                return local_cache
+
+            # VALUE present, so get a bridged object to make it mutable
+            bridged_obj = self.build_bridged_object(serial_dict[VALUE], callable=False)
+            return BridgedListProxy(bridged_obj, local_cache)
         elif serial_dict[TYPE] == TUPLE:
             return tuple(self.deserialize_from_dict(v) for v in serial_dict[VALUE])
         elif serial_dict[TYPE] == DICT:
-            result = dict()
-            for kv in serial_dict[VALUE]:
-                key = self.deserialize_from_dict(kv[KEY])
-                value = self.deserialize_from_dict(kv[VALUE])
-                result[key] = value
+            # we use OrderedDict for the local cache, just in case the remote side was an OrderedDict, or subclass of it, or from a python that does ordered dicts normally, and the user expects it to matter. This does come at a potential performance hit.
+            local_cache = collections.OrderedDict()
+            for kv in serial_dict[ARGS]:
+                local_cache[
+                    self.deserialize_from_dict(kv[KEY])
+                ] = self.deserialize_from_dict(kv[VALUE])
 
-            return result
+            if VALUE not in serial_dict:
+                # this was explictly serialized as a non-mutable dict, so we'll just pass the unpacked dict - don't create a bridge handle to allow mutating changes
+                return local_cache
+
+            # VALUE present, so get a bridged object to make it mutable
+            bridged_obj = self.build_bridged_object(serial_dict[VALUE], callable=False)
+            return BridgedDictProxy(bridged_obj, local_cache)
         elif (
             serial_dict[TYPE] == SLICE
         ):  # we create local slice objects so isinstance(slice) in __getitem__/etc works
@@ -958,7 +998,7 @@ class BridgeConn(object):
         """
         cmd_id = str(uuid.uuid4())  # used to link commands and responses
         envelope_dict = {
-            VERSION: COMMS_VERSION_5,
+            VERSION: COMMS_VERSION_6,
             ID: cmd_id,
             TYPE: CMD,
             CMD: command_dict,
@@ -1202,7 +1242,9 @@ class BridgeConn(object):
             args_dict[NAME]
         )  # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
-        dct = self.deserialize_from_dict(args_dict[DICT])
+        dct = dict(
+            self.deserialize_from_dict(args_dict[DICT])
+        )  # we extract this from a bridged mutable dict into a copied local dict - type() requires this arg to inherit from dict (UserDict isn't good enough)
 
         if self.logger.getEffectiveLevel() <= logging.DEBUG:
             try:
@@ -1508,7 +1550,7 @@ class BridgeConn(object):
 
     def handle_command(self, message_dict, want_response=True):
         response_dict = {
-            VERSION: COMMS_VERSION_5,
+            VERSION: COMMS_VERSION_6,
             ID: message_dict[ID],
             TYPE: RESULT,
             RESULT: {},
@@ -1519,32 +1561,38 @@ class BridgeConn(object):
         if command_dict[CMD] == DEL:
             self.local_del(command_dict[ARGS])  # no result required
         else:
-            result = None
-            if command_dict[CMD] == GET:
-                result = self.local_get(command_dict[ARGS])
-            elif command_dict[CMD] == SET:
-                result = self.local_set(command_dict[ARGS])
-            elif command_dict[CMD] == CALL:
-                result = self.local_call(command_dict[ARGS])
-            elif command_dict[CMD] == IMPORT:
-                result = self.local_import(command_dict[ARGS])
-            elif command_dict[CMD] == TYPE:
-                result = self.local_get_type(command_dict[ARGS])
-            elif command_dict[CMD] == CREATE_TYPE:
-                result = self.local_create_type(command_dict[ARGS])
-            elif command_dict[CMD] == GET_ALL:
-                result = self.local_get_all(command_dict[ARGS])
-            elif command_dict[CMD] == ISINSTANCE:
-                result = self.local_isinstance(command_dict[ARGS])
-            elif command_dict[CMD] == EVAL:
-                result = self.local_eval(command_dict[ARGS])
-            elif command_dict[CMD] == EXEC:
-                result = self.local_exec(command_dict[ARGS])
-            elif command_dict[CMD] == SHUTDOWN:
+            if command_dict[CMD] == SHUTDOWN:
+                # shutdown handled specially - we pass back the response as a non-mutable dict to avoid back and forth creating dicts if not already done
                 result = self.local_shutdown()
+                if want_response:  # only serialize if we want a response
+                    response_dict[RESULT] = self.serialize_to_dict(
+                        result, mutable=False
+                    )
+            else:
+                result = None
+                if command_dict[CMD] == GET:
+                    result = self.local_get(command_dict[ARGS])
+                elif command_dict[CMD] == SET:
+                    result = self.local_set(command_dict[ARGS])
+                elif command_dict[CMD] == CALL:
+                    result = self.local_call(command_dict[ARGS])
+                elif command_dict[CMD] == IMPORT:
+                    result = self.local_import(command_dict[ARGS])
+                elif command_dict[CMD] == TYPE:
+                    result = self.local_get_type(command_dict[ARGS])
+                elif command_dict[CMD] == CREATE_TYPE:
+                    result = self.local_create_type(command_dict[ARGS])
+                elif command_dict[CMD] == GET_ALL:
+                    result = self.local_get_all(command_dict[ARGS])
+                elif command_dict[CMD] == ISINSTANCE:
+                    result = self.local_isinstance(command_dict[ARGS])
+                elif command_dict[CMD] == EVAL:
+                    result = self.local_eval(command_dict[ARGS])
+                elif command_dict[CMD] == EXEC:
+                    result = self.local_exec(command_dict[ARGS])
 
-            if want_response:  # only serialize if we want a response
-                response_dict[RESULT] = self.serialize_to_dict(result)
+                if want_response:  # only serialize if we want a response
+                    response_dict[RESULT] = self.serialize_to_dict(result)
 
         if want_response:
             self.logger.debug("Responding with {}".format(response_dict))
@@ -1720,7 +1768,6 @@ class BridgeServer(
         if self.is_serving:
             self.logger.info("Shutting down bridge")
             self.is_serving = False
-            self.server.shutdown()
             self.server.server_close()
 
 
@@ -2041,12 +2088,18 @@ class BridgedObject(object):
             self._bridge_conn.remote_del(self._bridge_handle)
 
     def __repr__(self):
-        return "<{}('{}', type={}, handle={})>".format(
+        repr_string = "<{}('{}', type={}, handle={})>".format(
             type(self).__name__,
             self._bridge_repr,
             self._bridge_type,
             self._bridge_handle,
         )
+
+        if PYTHON_VERSION == 2:
+            # need to make sure we escape any unicode characters, repr expects to return string, not unicode. In py3, we don't have to care
+            repr_string = repr_string.encode("unicode_escape")
+
+        return repr_string
 
     def __dir__(self):
         return dir(super(type(self))) + (
@@ -2226,6 +2279,331 @@ class BridgedModuleFinderLoader:
 
         # hand back the module
         return target
+
+
+# Get UserDict/UserList for using with the mutable containers
+try:
+    from UserDict import UserDict  # py2
+    from UserList import UserList
+except ImportError:
+    from collections import UserDict, UserList  # py3
+
+
+class BridgedMutableProxy(object):
+    """Base container for a BridgedObject connected to a remote list/dict, as well as a local cache of the list/dict. When created, we use the local cache for any read operations. Once a write operation is performed, though, we send the write back remotely, and discard the cache - future reads will be against the remote container
+    TODO is it worth duplicating the write operations into the cache, or re-reading the cache, so local reads after remote writes don't need to be bridged?
+
+    We combine this with UserDict/UserList to ensure our method wrappers are called for all
+    functionality (inheriting from just dict on py2.7 didn't allow us to do **dict style unpacking correctly.
+    """
+
+    def __init__(self, bridged_obj, local_cache):
+        self._bridged_obj = bridged_obj
+        self.data = local_cache  # The core of UserDict/UserList initialisation - note: proper userdict/list initialisation takes a copy of this so the initial data can be released, but we don't need that.
+
+    def __str__(self):
+        """Special implementation so logging doesn't recurse with getattr("__str__")
+        Provides the [1,2,3]/{"a":1,"b":2} view of the object
+        """
+        str_val = None
+        if self.data is not None:
+            str_val = str(self.data)
+        else:
+            self._bridged_obj._bridge_conn.logger.debug(
+                "Local cache has been mutated. Using remote __str__()"
+            )
+
+            str_val = str(self._bridged_obj)
+
+        if PYTHON_VERSION == 2:
+            # need to make sure we escape any unicode characters, repr expects to return string, not unicode. In py3, we don't have to care
+            str_val = str_val.encode("unicode_escape")
+
+        return str_val
+
+    def __repr__(self):
+        """Provides a more detailed view of the object than str, including the backing handle, the contents of the local_cache and current contents of the remote state
+
+        e.g., <BridgedDictProxy(<_bridged_dict('{'a': 1, 'c': 4, 'b': 10, 'x': 20}', type=dict, handle=4c6e837b-0767-496a-87a7-7d444ece0966)>, local_cache=OrderedDict([('a', 1), ('c', 4), ('b', 10), ('x', 20)]))>
+        or for a modified container
+        <BridgedListProxy(<_bridged_list('[3, 6, 7, 3, 5]', type=list, handle=af0e11d8-d036-4ecd-877c-c3dd7eb8858b)>, local_cache=None)>
+        """
+        # get a repr for the bridged obj - including types, current remote state, and handle
+        # note that we don't just use the bridged obj repr, as it saves the original state,
+        # which could be confusing for people
+        current_remote_state = str(self._bridged_obj)
+        bridged_obj_repr = "<{}('{}', type={}, handle={})>".format(
+            type(self._bridged_obj).__name__,
+            current_remote_state,
+            self._bridged_obj._bridge_type,
+            self._bridged_obj._bridge_handle,
+        )
+
+        repr_string = "<{}({}, local_cache={})>".format(
+            type(self).__name__, bridged_obj_repr, repr(self.data)
+        )
+
+        if PYTHON_VERSION == 2:
+            # need to make sure we escape any unicode characters, repr expects to return string, not unicode. In py3, we don't have to care
+            repr_string = repr_string.encode("unicode_escape")
+
+        return repr_string
+
+
+# we use this to implement partialmethod-like behaviour for older pythons (partialmethod is only in python 3.4+). functools.partial by itself doesn't return something that gets the self parameter added automatically. See https://stackoverflow.com/a/60646628
+def partialmeth(func, *args, **keywords):
+    def newfunc(*fargs, **fkeywords):
+        new_args = list(args)
+        new_args.extend(fargs)
+        new_keywords = keywords.copy()
+        new_keywords.update(fkeywords)
+        return func(*new_args, **new_keywords)
+
+    newfunc.func = func
+    newfunc.args = args
+    newfunc.keywords = keywords
+    return newfunc
+
+
+def _bridged_class_mutate_wrapper(fn_name, instance, *args, **kwargs):
+    """Wrapper function around methods that modify the backing container. When this is called, we remove the local cache and pass the call onto the remote backing container"""
+    instance._bridged_obj._bridge_conn.logger.debug(
+        "Mutating container {} with {}()".format(repr(instance._bridged_obj), fn_name)
+    )
+    instance.data = None  # TODO do we want to poison this?
+    return getattr(instance._bridged_obj, fn_name)(*args, **kwargs)
+
+
+def _bridged_class_read_wrapper(fn_name, instance, *args, **kwargs):
+    """Wrapper function around methods that _don't_ modify the backing container. When this is called, we direct it to the local cache if that's still valid, or pass it onto the remote backing list if a mutate has been called"""
+    target_fn = None
+
+    if instance.data is not None:
+        try:
+            target_fn = getattr(instance.data, fn_name)
+        except AttributeError:
+            # this happens if we're asking for a method that's not defined on the local cached version (e.g., list.copy()/clear() only exists on py3 lists, so the py2 local version won't have it).
+            # Not sure if this will ever happen - you'd need to be sending code to py2 that is actually only py3 compliant, but easy enough to handle as a fallback.
+            instance._bridged_obj._bridge_conn.logger.warning(
+                "Tried to use local container cache for {} with {}(), but it wasn't defined. Falling back to remote version.".format(
+                    repr(instance._bridged_obj), fn_name
+                )
+            )
+            pass
+    else:
+        instance._bridged_obj._bridge_conn.logger.debug(
+            "Container {} has been mutated. Using remote for {}()".format(
+                repr(instance._bridged_obj), fn_name
+            )
+        )
+
+    if target_fn is None:
+        target_fn = getattr(instance._bridged_obj, fn_name)
+
+    return target_fn(*args, **kwargs)
+
+
+def _bridged_list_delslice_handler(instance, slice_start, slice_stop):
+    """Handle __delslice__ being present in py2 vs py3 - if we're calling this, we're in py2. Py3 calls of similar behaviour go to __delitem__, which behaves the same on py2 and 3
+    This is a mutating method (but we'll let the delitem wrapper handle it).
+    Note that if slice step is provided, py2 calls delitem with a slice object instead, so we don't come via here.
+    Finally, we could try to see if we're talking py2-py2 and the remote has a delslice method - but instead we'll just presume we're not, and pass a slice object to __delitem__ which has the same effect anyway, for simpler logic
+    """
+    return getattr(instance, "__delitem__")(slice(slice_start, slice_stop))
+
+
+def _bridged_list_setslice_handler(instance, slice_start, slice_stop, new_vals):
+    """As per _bridged_list_delslice_handler, but for setslice"""
+    return getattr(instance, "__setitem__")(slice(slice_start, slice_stop), new_vals)
+
+
+def _bridged_list_getslice_handler(instance, slice_start, slice_stop):
+    """As per _bridged_list_delslice_handler, but for getslice - it's a read-only method"""
+    return getattr(instance, "__getitem__")(slice(slice_start, slice_stop))
+
+
+def _bridged_list_clear_handler(instance):
+    """Special-case handler for clear being in py3 lists, but not py2. If we are doing py3 ops on a py2 list, we might call clear - if that happens, we'll manually clear it with a slice delete. For py3 on py3, we just call the remote clear.
+
+    This is a mutating method.
+    """
+    instance._bridged_obj._bridge_conn.logger.debug(
+        "Mutating container {} with clear()".format(repr(instance._bridged_obj))
+    )
+    instance.data = None  # TODO do we want to poison this?
+    try:
+        # try calling clear
+        getattr(instance._bridged_obj, "clear")()
+    except AttributeError:
+        # clear doesn't exist, it must be a py2 list. reimplement it
+        del instance[:]
+
+
+def _bridged_dict_ior_handler(instance, new_vals):
+    """Special-case handler for __ior__ being in py3 dicts, but not py2. If we are doing py3 ops on a py2 dict, we might call |= - if that happens, we'll manually replicate it with update. For py3 on py3, we just call the remote __ior__.
+
+    This is a mutating method.
+    """
+    instance._bridged_obj._bridge_conn.logger.debug(
+        "Mutating container {} with __ior__()".format(repr(instance._bridged_obj))
+    )
+    instance.data = None  # TODO do we want to poison this?
+    try:
+        # try calling ior
+        return getattr(instance._bridged_obj, "__ior__")(new_vals)
+    except AttributeError:
+        # __ior__ doesn't exist, it must be a py2 dict. replicate it with update
+        instance.update(new_vals)
+        return instance
+
+
+# we need to have the entries defined in the class directly (otherwise, they'll defer automatically to the list implementation). If they're not hardcoded into the class, establish them with entries in the dict - could either do this via a dynamic type() creation, or with setattr (note, can't update the __dict__ directly since python 3.3)
+BRIDGED_LIST_MUTABLE_METHODS = [
+    "__delitem__",
+    "__iadd__",
+    "__imul__",
+    "__setitem__",
+    "append",
+    "extend",
+    "insert",
+    "pop",
+    "remove",
+    "reverse",
+    "sort",
+]
+BRIDGED_LIST_READ_METHODS = [
+    "__add__",
+    "__contains__",
+    "__eq__",
+    "__getitem__",
+    "__getstate__",
+    "__gt__",
+    "__ge__",
+    "__hash__",
+    "__iter__",
+    "__le__",
+    "__len__",
+    "__lt__",
+    "__mul__",
+    "__ne__",
+    "__reduce__",
+    "__reduce_ex__",
+    "__reversed__",
+    "__rmul__",
+    "__sizeof__",
+    "copy",
+    "count",
+    "index",
+]
+# note: pickle methods (reduce, reduce_ex, getstate) just pickle the contents of the container, no point pickling the remote handle that likely won't be around
+
+bridged_list_methods = {
+    name: partialmeth(_bridged_class_mutate_wrapper, name)
+    for name in BRIDGED_LIST_MUTABLE_METHODS
+}
+bridged_list_methods.update(
+    {
+        name: partialmeth(_bridged_class_read_wrapper, name)
+        for name in BRIDGED_LIST_READ_METHODS
+    }
+)
+# Add the special handlers for deprecated py2 slice methods
+bridged_list_methods.update(
+    {
+        "__delslice__": _bridged_list_delslice_handler,
+        "__setslice__": _bridged_list_setslice_handler,
+        "__getslice__": _bridged_list_getslice_handler,
+    }
+)
+# Add the special handler for clear to adapt to py2 lists
+bridged_list_methods.update(
+    {
+        "clear": _bridged_list_clear_handler,
+    }
+)
+BridgedListProxy = type(
+    str("BridgedListProxy"),
+    (
+        BridgedMutableProxy,
+        UserList,  # We don't really need UserList instead of list, but it uses the same self.data structure as UserDict, so if we do it this way, we can share most of the code.
+    ),
+    bridged_list_methods,
+)
+
+BRIDGED_DICT_MUTABLE_METHODS = [
+    "__delitem__",
+    "__setitem__",
+    "clear",
+    "pop",
+    "popitem",
+    "setdefault",
+    "update",
+]
+BRIDGED_DICT_READ_METHODS = [
+    "__contains__",
+    "__eq__",
+    "__getitem__",
+    "__getstate__",
+    "__gt__",
+    "__ge__",
+    "__hash__",
+    "__iter__",
+    "__le__",
+    "__len__",
+    "__lt__",
+    "__ne__",
+    "__or__",
+    "__reduce__",
+    "__reduce_ex__",
+    "__reversed__",
+    "__ror__",
+    "__sizeof__",
+    "copy",
+    "fromkeys",
+    "get",
+    "items",
+    "keys",
+    "values",
+]
+bridged_dict_methods = {
+    name: partialmeth(_bridged_class_mutate_wrapper, name)
+    for name in BRIDGED_DICT_MUTABLE_METHODS
+}
+bridged_dict_methods.update(
+    {
+        name: partialmeth(_bridged_class_read_wrapper, name)
+        for name in BRIDGED_DICT_READ_METHODS
+    }
+)
+# Add mappings for deprecated py2 dict methods to their py3 counterparts. These would only be called by old py2 code, and the counterparts exist and behave the same in py2
+bridged_dict_methods.update(
+    {
+        "iterkeys": partialmeth(_bridged_class_read_wrapper, "keys"),
+        "viewkeys": partialmeth(_bridged_class_read_wrapper, "keys"),
+        "iteritems": partialmeth(_bridged_class_read_wrapper, "items"),
+        "viewitems": partialmeth(_bridged_class_read_wrapper, "items"),
+        "itervalues": partialmeth(_bridged_class_read_wrapper, "values"),
+        "viewvalues": partialmeth(_bridged_class_read_wrapper, "values"),
+        "has_key": partialmeth(_bridged_class_read_wrapper, "__contains__"),
+    }
+)
+
+# Add the special handler for __ior__ to adapt to py2 dicts
+bridged_dict_methods.update(
+    {
+        "__ior__": _bridged_dict_ior_handler,
+    }
+)
+
+BridgedDictProxy = type(
+    str("BridgedDictProxy"),
+    (
+        BridgedMutableProxy,
+        UserDict,  # we use userdict instead of dict so we can implement ** style unpacking in py2.7 (if we based off dict, our overridden methods didn't get called in that case)
+    ),
+    bridged_dict_methods,
+)
+# Note: we explictly don't pass through class modifying methods (e.g., setattr, delattr, new) for bridgedlist and bridgeddict.
 
 
 def nonreturn(func):
