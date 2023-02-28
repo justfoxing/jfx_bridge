@@ -5,6 +5,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+        fail-fast: false # we don't fail fast, we want info on all the failed tests for all our combinations, not just the first one to fail
         matrix:
             client_version: ["2.7", "3.10", "3.11"]
             server_version: ["2.7", "3.10"] # Note: 3.11 has some issue when running as a server which causes "test_nonreturn_marker_local" to fail. Not sure why. TODO, but not really a major issue as our main target is ghidra's jython 2.7 server
