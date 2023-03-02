@@ -762,7 +762,7 @@ class TestBridge(unittest.TestCase):
 
         if remote_python_version == 2:
             # send the remote side strings that are plain and unicode and check what we get
-            plain_string = "string"
+            plain_string = str("string")
             unicode_string = "unicode_string🐉🔍"
 
             self.assertFalse(
@@ -775,8 +775,7 @@ class TestBridge(unittest.TestCase):
                     "isinstance(unicode_string, unicode)", unicode_string=unicode_string
                 )
             )
-
-        if local_python_version == 2:
+        elif local_python_version == 2:
             # get the remote side to send us strings that are plain and unicode and check what we get
             self.assertFalse(
                 isinstance(self.test_bridge.remote_eval("'plain'"), unicode)
@@ -789,7 +788,6 @@ class TestBridge(unittest.TestCase):
                     unicode,
                 )
             )  # dragon emoji
-
         else:
             # same versions, can't think of anything useful to test load
             self.skipTest("Test irrelevant for matched versions")
