@@ -61,6 +61,7 @@ jobs:
             
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
+        if: always() # we always want to keep the test files
         with:
           name: test-reports
           path: test-reports/
