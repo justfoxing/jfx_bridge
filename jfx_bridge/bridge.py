@@ -1638,6 +1638,7 @@ class BridgeConn(object):
 class BridgeServer(
     threading.Thread
 ):  # TODO - have BridgeServer and BridgeClient share a class
+    # TODO - provide some way of capturing server stats, potentially remotely as well?
     """Python2Python RPC bridge server
 
     Like a thread, so call run() to run directly, or start() to run on a background thread

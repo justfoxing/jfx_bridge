@@ -7,6 +7,9 @@ import sys
 import os
 import types
 import time
+import cProfile
+import pstats
+
 from jfx_bridge import bridge
 
 
@@ -15,9 +18,9 @@ def run_server(
     server_port=bridge.DEFAULT_SERVER_PORT,
     response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT,
 ):
-    """ Run a jfx_bridge server (forever)
-        server_host - what address the server should listen on
-        server_port - what port the server should listen on
+    """Run a jfx_bridge server (forever)
+    server_host - what address the server should listen on
+    server_port - what port the server should listen on
     """
     bridge.BridgeServer(
         server_host=server_host,
@@ -28,16 +31,16 @@ def run_server(
 
 
 def run_script_across_jfx_bridge(script_file, python="python", argstring=""):
-    """ Spin up a jfx_bridge server and spawn the script in external python to connect back to it.
-        Useful in scripts being triggered from inside a limited python that need to use python3 or
-        packages that don't work there
+    """Spin up a jfx_bridge server and spawn the script in external python to connect back to it.
+    Useful in scripts being triggered from inside a limited python that need to use python3 or
+    packages that don't work there
 
-        The called script needs to handle the --connect_to_host and --connect_to_port command-line arguments and use them to start
-        a jfx_bridge client to talk back to the server.
+    The called script needs to handle the --connect_to_host and --connect_to_port command-line arguments and use them to start
+    a jfx_bridge client to talk back to the server.
 
-        Specify python to control what the script gets run with. Defaults to whatever python is in the shell - if changing, specify a path
-        or name the shell can find.
-        Specify argstring to pass further arguments to the script when it starts up.
+    Specify python to control what the script gets run with. Defaults to whatever python is in the shell - if changing, specify a path
+    or name the shell can find.
+    Specify argstring to pass further arguments to the script when it starts up.
     """
 
     # spawn a ghidra bridge server - use server port 0 to pick a random port
@@ -104,5 +107,14 @@ def nonreturn():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
-    run_server(server_port=port, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)
+    # setup cprofile to observe the server
+    pr = cProfile.Profile()
+    pr.enable()
+
+    try:
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+        run_server(server_port=port, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)
+    finally:
+        p = pstats.Stats(pr)
+        p.sort_stats("cumulative")
+        p.print_stats()

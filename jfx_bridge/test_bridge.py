@@ -10,6 +10,8 @@ import time
 import sys
 import os
 import functools
+import cProfile
+import pstats
 
 from . import bridge
 from . import test_module
@@ -44,6 +46,10 @@ class TestBridge(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # setup cprofile to profile (most) of the tests
+        cls.pr = cProfile.Profile()
+        cls.pr.enable()
+
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
@@ -58,6 +64,10 @@ class TestBridge(unittest.TestCase):
                 "TestBridge Total", cls.test_bridge.get_stats() - cls.total_start_stats
             )
         )
+
+        p = pstats.Stats(cls.pr)
+        p.sort_stats("cumulative")
+        p.print_stats()
 
     @print_stats
     def test_import(self):
