@@ -193,12 +193,12 @@ def stats_hit(func):
     """
 
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def stats_hit_wrapper(self, *args, **kwargs):
         if self.stats is not None:
             self.stats.add_hit(func.__name__)
         return func(self, *args, **kwargs)
 
-    return wrapper
+    return stats_hit_wrapper
 
 
 def stats_time(func):
@@ -207,7 +207,7 @@ def stats_time(func):
     """
 
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def stats_time_wrapper(self, *args, **kwargs):
         start_time = time.time()
         return_val = func(self, *args, **kwargs)
         total_time = time.time() - start_time
@@ -217,7 +217,7 @@ def stats_time(func):
 
         return return_val
 
-    return wrapper
+    return stats_time_wrapper
 
 
 class Stats:

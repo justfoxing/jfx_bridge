@@ -25,7 +25,7 @@ if sys.version_info[0] == 2:
 
 def print_stats(func):
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def print_stats_wrapper(self, *args, **kwargs):
         start_stats = self.test_bridge.get_stats()
         func(self, *args, **kwargs)
         print(
@@ -34,7 +34,7 @@ def print_stats(func):
             )
         )
 
-    return wrapper
+    return print_stats_wrapper
 
 
 def sample_test_unindented_function():
