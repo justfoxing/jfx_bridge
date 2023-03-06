@@ -28,6 +28,9 @@ import textwrap
 import types
 import collections
 
+import cProfile
+import pstats
+
 __version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
 # record the python version we're running locally, for when we need to do 2/3 stuff
@@ -538,6 +541,12 @@ class BridgeReceiverThread(threading.Thread):
 class BridgeCommandHandler(socketserver.BaseRequestHandler):
     def handle(self):
         """handle a new client connection coming in - continue trying to read/service requests in a loop until we fail to send/recv"""
+        # if we're getting debug logs, also record a profile for serving each client connection. Little bit gross to combine the two concepts, but they're related and saves having to add another flag
+        pr = None
+        if self.server.bridge.logger.level == logging.DEBUG:
+            pr = cProfile.Profile()
+            pr.enable()
+
         peer = self.request.getpeername()
         self.server.bridge.logger.warn("Handling connection from {}".format(peer))
         try:
@@ -565,6 +574,11 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
                 self.server.bridge.logger.warn(
                     "Closing connection from {}".format(peer)
                 )
+
+            if pr is not None:
+                p = pstats.Stats(pr)
+                p.sort_stats("cumulative")
+                p.print_stats()  # gross that we can't log this instead of printing, but that's just python for you :(
             # we're out of the loop now, so the connection object will get told to delete itself, which will remove its references to any objects its holding onto
 
 

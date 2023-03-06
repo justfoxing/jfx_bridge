@@ -7,8 +7,6 @@ import sys
 import os
 import types
 import time
-import cProfile
-import pstats
 
 from jfx_bridge import bridge
 
@@ -107,14 +105,5 @@ def nonreturn():
 
 
 if __name__ == "__main__":
-    # setup cprofile to observe the server
-    pr = cProfile.Profile()
-    pr.enable()
-
-    try:
-        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
-        run_server(server_port=port, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)
-    finally:
-        p = pstats.Stats(pr)
-        p.sort_stats("cumulative")
-        p.print_stats()
+    port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+    run_server(server_port=port, response_timeout=bridge.DEFAULT_RESPONSE_TIMEOUT)
