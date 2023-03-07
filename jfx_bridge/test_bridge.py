@@ -791,6 +791,33 @@ class TestBridge(unittest.TestCase):
             # same versions, can't think of anything useful to test load
             self.skipTest("Test irrelevant for matched versions")
 
+
+class TestBridgeMutableContainers(unittest.TestCase):
+    """Assumes there's a bridge server running at DEFAULT_SERVER_PORT"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pr = cProfile.Profile()
+        cls.pr.enable()
+        port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
+        cls.test_bridge = bridge.BridgeClient(
+            connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
+        )
+        cls.total_start_stats = cls.test_bridge.get_stats()
+
+    @classmethod
+    def tearDownClass(cls):
+        total_stats = cls.test_bridge.get_stats()
+        print(
+            "\n{}:\n\t{}\n".format(
+                "TestBridgeMutableContainers Total",
+                cls.test_bridge.get_stats() - cls.total_start_stats,
+            )
+        )
+        p = pstats.Stats(cls.pr)
+        p.sort_stats("cumulative")
+        p.print_stats()
+
     @print_stats
     def test_mutable_list_set_index(self):
         # __setitem__
@@ -1707,12 +1734,6 @@ class TestBridge(unittest.TestCase):
         )
 
 
-"""
-dict
-BRIDGED_DICT_READ_METHODS = [, "__eq__", "__getitem__", "__getstate__", "__gt__", "__ge__", "__hash__", "__iter__", "__le__", "__lt__", "__ne__", "__or__", "__reduce__", "__reduce_ex__", "__repr__", "__reversed__", "__ror__", "__sizeof__", "fromkeys", "get", "items", "keys", "values"]
-"""
-
-
 class TestBridgeHookImport(unittest.TestCase):
     """Assumes there's a bridge server running at DEFAULT_SERVER_PORT."""
 
@@ -1724,6 +1745,18 @@ class TestBridgeHookImport(unittest.TestCase):
             loglevel=logging.DEBUG,
             hook_import=True,
             record_stats=True,
+        )
+
+        cls.total_start_stats = cls.test_bridge.get_stats()
+
+    @classmethod
+    def tearDownClass(cls):
+        total_stats = cls.test_bridge.get_stats()
+        print(
+            "\n{}:\n\t{}\n".format(
+                "TestBridgeHookImport Total",
+                cls.test_bridge.get_stats() - cls.total_start_stats,
+            )
         )
 
     @print_stats
@@ -1849,12 +1882,24 @@ class TestBridgeHookImportReimport(unittest.TestCase):
             record_stats=True,
         )
 
+        cls.total_start_stats = cls.test_bridge.get_stats()
+
         # rearrange paths to make sure our importer gets called first
         # TODO once we get around to implementing cleaning up import hooks on client shutdown, this shouldn't be required
         new_importer = sys.path[-1]
         old_importer = sys.path[old_importer_index]
         sys.path[old_importer_index] = new_importer
         sys.path[-1] = old_importer
+
+    @classmethod
+    def tearDownClass(cls):
+        total_stats = cls.test_bridge.get_stats()
+        print(
+            "\n{}:\n\t{}\n".format(
+                "TestBridgeHookImportReimport Total",
+                cls.test_bridge.get_stats() - cls.total_start_stats,
+            )
+        )
 
     @print_stats
     def test_hook_import_nonmodule_again(self):
@@ -1878,6 +1923,18 @@ class TestBridgeZZZZZZZShutdown(unittest.TestCase):
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
+        )
+
+        cls.total_start_stats = cls.test_bridge.get_stats()
+
+    @classmethod
+    def tearDownClass(cls):
+        total_stats = cls.test_bridge.get_stats()
+        print(
+            "\n{}:\n\t{}\n".format(
+                "TestBridgeZZZZZZZShutdown Total",
+                cls.test_bridge.get_stats() - cls.total_start_stats,
+            )
         )
 
     @print_stats
