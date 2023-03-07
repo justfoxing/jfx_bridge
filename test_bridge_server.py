@@ -23,7 +23,7 @@ def run_server(
     bridge.BridgeServer(
         server_host=server_host,
         server_port=server_port,
-        loglevel=logging.INFO,
+        loglevel=logging.DEBUG,
         response_timeout=response_timeout,
     ).run()
 
