@@ -1321,6 +1321,26 @@ class TestBridgeMutableContainers(unittest.TestCase):
         )
 
     @print_stats
+    def test_mutable_list_subcontainer(self):
+        """Check we can modify a list inside a list"""
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list[2] = 20
+
+        def remote_list_subcontainer(outer_list, list_idx, target_idx, value):
+            target_list = outer_list[list_idx]
+            target_list[target_idx] = value
+
+            return target_list
+
+        remote_list = self.test_bridge.remoteify(remote_list_subcontainer)(
+            [local_test_list], 0, 2, 20
+        )
+
+        self.assertEqual(match_list, remote_list, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
     def test_mutable_dict_set_key(self):
         match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
         local_test_dict = match_dict.copy()
@@ -1732,6 +1752,87 @@ class TestBridgeMutableContainers(unittest.TestCase):
         self.assertEqual(
             match_dict, remote_result, "Local dict didn't match viewed target"
         )
+
+    @print_stats
+    def test_mutable_dict_subcontainer(self):
+        """Check we can modify a dict inside a dict"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict["b"] = 20
+
+        def remote_dict_subcontainer(outer_dict, dict_key, target_key, value):
+            target_dict = outer_dict[dict_key]
+            target_dict[target_key] = value
+
+            return target_dict
+
+        remote_dict = self.test_bridge.remoteify(remote_dict_subcontainer)(
+            {"dict": local_test_dict}, "dict", "b", 20
+        )
+
+        self.assertEqual(match_dict, remote_dict, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+    @print_stats
+    def test_mutable_remote_call_kwargs(self):
+        """Make sure that we can mutate containers sent as kwargs in a remote call"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict["a"] = 20
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list[2] = 20
+
+        def remote_mutate_kwargs(d=None, l=None):
+            d["a"] = 20
+            l[2] = 20
+
+            return d, l
+
+        remote_dict, remote_list = self.test_bridge.remoteify(remote_mutate_kwargs)(
+            d=local_test_dict, l=local_test_list
+        )
+
+        self.assertEqual(match_dict, remote_dict, "Remote dict didn't match target")
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(match_list, remote_list, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_remote_eval_kwargs(self):
+        """Make sure that we can mutate containers sent as kwargs in a remote eval"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict.pop("a")
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list.pop()
+
+        self.test_bridge.remote_eval("d.pop('a')", d=local_test_dict)
+        self.test_bridge.remote_eval("l.pop()", l=local_test_list)
+
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_remote_exec_kwargs(self):
+        """Make sure that we can mutate containers sent as kwargs in a remote exec"""
+        match_dict = {"a": 1, "c": 4, "b": 10, "x": 20}
+        local_test_dict = match_dict.copy()
+        match_dict["a"] = 20
+        match_list = [3, 6, 7, 3, 5]
+        local_test_list = list(match_list)
+        match_list[2] = 20
+
+        self.test_bridge.remote_exec(
+            "d['a'] = 20; l[2] = 20", d=local_test_dict, l=local_test_list
+        )
+
+        self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
+
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
 
 
 class TestBridgeHookImport(unittest.TestCase):

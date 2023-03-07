@@ -190,6 +190,23 @@ class BridgeTimeoutException(Exception):
     pass
 
 
+class OneWayDict(dict):
+    """Simple wrapper around a dict that indicates that we don't want to remotely query or mutate it across the bridge. This gives better performance - don't need to ship a handle across in the first place, and don't have the remote side telling us when it releases it.
+
+    Represented on the remote side by a normal dict populated with the same values as when it was first serialized.
+
+    Note: can still be mutated locally, but changes after serialization won't be reflected on the remote side.
+    """
+
+    pass
+
+
+class OneWayList(list):
+    """As per OneWayDict, but for lists. Not used internally at the moment, may not be needed."""
+
+    pass
+
+
 def stats_hit(func):
     """Decorate a function to record how many times it gets hit. Assumes the function is in a class with a stats attribute (can be set to None to
     disable stats recording
@@ -787,9 +804,10 @@ class BridgeConn(object):
                 # remove this entry from the list
                 self.delay_delete_handles.pop(0)
 
-    def serialize_to_dict(self, data, mutable=True):
+    def serialize_to_dict(self, data):
         """Generate a dictionary representing the data - this will later be converted to JSON
-        For mutable containers (list/dict), if mutable is set to false, they'll be packed as the raw list/dict. If left as default true, they'll also pack a handle so mutating changes can be written back. Any child objects will be serialized with the same mutable value (which may not necessarily be what you want, if you want an immutable list of mutable lists for some reason).
+
+        If you're packing a mutable container (list/dict) but don't want it to be remotely mutable (e.g., for performance reasons), wrap it in a OneWayList/OneWayDict to indicate that
         """
         serialized_dict = None
 
@@ -820,11 +838,11 @@ class BridgeConn(object):
             serialized_dict = {
                 TYPE: LIST,
                 ARGS: [
-                    self.serialize_to_dict(v, mutable=mutable) for v in data
+                    self.serialize_to_dict(v) for v in data
                 ],  # as an optimisation, we pass the initial contents of the list - most of the time, this is all we want, and this way we don't have to get each entry individually
             }
 
-            if mutable:
+            if not isinstance(data, OneWayList):
                 serialized_dict[VALUE] = self.create_handle(
                     data
                 ).to_dict()  # we pass a handle to the list, so we can mutate it from the remote side if needed
@@ -838,14 +856,14 @@ class BridgeConn(object):
                 TYPE: DICT,
                 ARGS: [
                     {
-                        KEY: self.serialize_to_dict(k, mutable=mutable),
-                        VALUE: self.serialize_to_dict(v, mutable=mutable),
+                        KEY: self.serialize_to_dict(k),
+                        VALUE: self.serialize_to_dict(v),
                     }
                     for k, v in data.items()
                 ],  # as an optimisation, we pass the initial contents of the dict - most of the time, this is all we want, and this way we don't have to get each entry individually
             }
 
-            if mutable:
+            if not isinstance(data, OneWayDict):
                 serialized_dict[VALUE] = self.create_handle(
                     data
                 ).to_dict()  # we pass a handle to the dict, so we can mutate it from the remote side if needed
@@ -925,7 +943,7 @@ class BridgeConn(object):
         elif serial_dict[TYPE] == LIST:
             local_cache = [self.deserialize_from_dict(v) for v in serial_dict[ARGS]]
             if VALUE not in serial_dict:
-                # this was explictly serialized as a non-mutable list, so we'll just pass the unpacked list - don't create a bridge handle to allow mutating changes
+                # this was explictly serialized as a one-way list, so we'll just pass the unpacked list - don't create a bridge handle to allow mutating changes
                 return local_cache
 
             # VALUE present, so get a bridged object to make it mutable
@@ -942,7 +960,7 @@ class BridgeConn(object):
                 ] = self.deserialize_from_dict(kv[VALUE])
 
             if VALUE not in serial_dict:
-                # this was explictly serialized as a non-mutable dict, so we'll just pass the unpacked dict - don't create a bridge handle to allow mutating changes
+                # this was explictly serialized as a one-way dict, so we'll just pass the unpacked dict - don't create a bridge handle to allow mutating changes
                 return local_cache
 
             # VALUE present, so get a bridged object to make it mutable
@@ -1111,8 +1129,10 @@ class BridgeConn(object):
     def remote_call(self, handle, *args, **kwargs):
         self.logger.debug("remote_call: {}({},{})".format(handle, args, kwargs))
 
-        serial_args = self.serialize_to_dict(args)
-        serial_kwargs = self.serialize_to_dict(kwargs)
+        serial_args = self.serialize_to_dict(args)  # args is a tuple, immutable
+        serial_kwargs = self.serialize_to_dict(
+            OneWayDict(kwargs)
+        )  # send kwargs as oneway for better perf - we don't change it in the call
         command_dict = {
             CMD: CALL,
             ARGS: {HANDLE: handle, ARGS: serial_args, KWARGS: serial_kwargs},
@@ -1127,8 +1147,10 @@ class BridgeConn(object):
             "remote_call_nonreturn: {}({},{})".format(handle, args, kwargs)
         )
 
-        serial_args = self.serialize_to_dict(args)
-        serial_kwargs = self.serialize_to_dict(kwargs)
+        serial_args = self.serialize_to_dict(args)  # args is a tuple, immutable
+        serial_kwargs = self.serialize_to_dict(
+            OneWayDict(kwargs)
+        )  # send kwargs as oneway for better perf - we don't change it in the call
         command_dict = {
             CMD: CALL,
             ARGS: {HANDLE: handle, ARGS: serial_args, KWARGS: serial_kwargs},
@@ -1247,8 +1269,12 @@ class BridgeConn(object):
             CMD: CREATE_TYPE,
             ARGS: {
                 NAME: name,
-                BASES: self.serialize_to_dict(bases),
-                DICT: self.serialize_to_dict(dct),
+                BASES: self.serialize_to_dict(
+                    tuple(bases)
+                ),  # bases should be a tuple, enforce that it is so we don't accidentally send a mutable list
+                DICT: self.serialize_to_dict(
+                    OneWayDict(dct)
+                ),  # send the dict as oneway - gets copied when type being created, so no value in sending it mutable
             },
         }
         return self.deserialize_from_dict(self.send_cmd(command_dict))
@@ -1259,9 +1285,7 @@ class BridgeConn(object):
             args_dict[NAME]
         )  # type name can't be unicode string in python2 - force to string
         bases = self.deserialize_from_dict(args_dict[BASES])
-        dct = dict(
-            self.deserialize_from_dict(args_dict[DICT])
-        )  # we extract this from a bridged mutable dict into a copied local dict - type() requires this arg to inherit from dict (UserDict isn't good enough)
+        dct = self.deserialize_from_dict(args_dict[DICT])
 
         if self.logger.getEffectiveLevel() <= logging.DEBUG:
             try:
@@ -1334,7 +1358,9 @@ class BridgeConn(object):
 
         command_dict = {
             CMD: ISINSTANCE,
-            ARGS: self.serialize_to_dict({OBJ: test_object, TUPLE: check_class_tuple}),
+            ARGS: self.serialize_to_dict(
+                OneWayDict({OBJ: test_object, TUPLE: check_class_tuple})
+            ),  # we don't modify this dict, so make it oneway for perf
         }
         return self.deserialize_from_dict(self.send_cmd(command_dict))
 
@@ -1382,7 +1408,9 @@ class BridgeConn(object):
 
         command_dict = {
             CMD: EVAL,
-            ARGS: self.serialize_to_dict({EXPR: eval_string, KWARGS: kwargs}),
+            ARGS: self.serialize_to_dict(
+                OneWayDict({EXPR: eval_string, KWARGS: OneWayDict(kwargs)})
+            ),  # we don't modify the outer dict, or the kwargs dict, so make sure they're both oneway
         }
         # Remote eval commands might take a while, so override the timeout value, factor 100 is arbitrary unless an override specified by caller
         if timeout_override is None:
@@ -1438,7 +1466,9 @@ class BridgeConn(object):
 
         command_dict = {
             CMD: EXEC,
-            ARGS: self.serialize_to_dict({EXPR: exec_string, KWARGS: kwargs}),
+            ARGS: self.serialize_to_dict(
+                OneWayDict({EXPR: exec_string, KWARGS: OneWayDict(kwargs)})
+            ),  # we don't modify the outer dict, or the kwargs dict, so make sure they're both oneway
         }
         # Remote exec commands might take a while, so override the timeout value, factor 100 is arbitrary unless an override specified by caller
         if timeout_override is None:
@@ -1582,9 +1612,7 @@ class BridgeConn(object):
                 # shutdown handled specially - we pass back the response as a non-mutable dict to avoid back and forth creating dicts if not already done
                 result = self.local_shutdown()
                 if want_response:  # only serialize if we want a response
-                    response_dict[RESULT] = self.serialize_to_dict(
-                        result, mutable=False
-                    )
+                    response_dict[RESULT] = self.serialize_to_dict(OneWayDict(result))
             else:
                 result = None
                 if command_dict[CMD] == GET:
