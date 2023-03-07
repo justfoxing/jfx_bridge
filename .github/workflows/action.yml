@@ -39,7 +39,7 @@ jobs:
             touch $SRV_ERR_LOG
             python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
+            python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
         
         
       - name: Test py2 client with nose
@@ -57,7 +57,7 @@ jobs:
             touch $SRV_ERR_LOG
             python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python${{ matrix.client_version }} -m nose --nocapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
+            python${{ matrix.client_version }} -m nose --nocapture --nologcapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
             
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
