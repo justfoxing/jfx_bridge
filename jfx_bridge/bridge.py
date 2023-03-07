@@ -514,6 +514,8 @@ class BridgeReceiverThread(threading.Thread):
                 # client didn't have anything to say - just wait some more
                 time.sleep(0.1)
                 continue
+            except (BridgeClosedException, ConnectionResetError):
+                break  # expected - the other side has closed the connection
 
             try:
                 msg_dict = json.loads(data.decode("utf-8"))
@@ -559,13 +561,13 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
                 )
             ).run()
 
-            # only get here if the client has requested we shutdown the bridge
-            self.server.bridge.logger.debug(
-                "Receiver thread exited - bridge shutdown requested"
-            )
-            self.server.bridge.shutdown()
-        except (BridgeClosedException, ConnectionResetError):
-            pass  # expected - the client has closed the connection
+            # only get here if the client has closed the connection/requested shutdown
+            if GLOBAL_BRIDGE_SHUTDOWN:
+                self.server.bridge.logger.debug(
+                    "Receiver thread exited - bridge shutdown requested"
+                )
+                self.server.bridge.shutdown()
+
         except EXCEPTION_TYPES as e:
             # something weird went wrong?
             self.server.bridge.logger.exception(e)
@@ -579,6 +581,7 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
                 p = pstats.Stats(pr)
                 p.sort_stats("cumulative")
                 p.print_stats()  # gross that we can't log this instead of printing, but that's just python for you :(
+
             # we're out of the loop now, so the connection object will get told to delete itself, which will remove its references to any objects its holding onto
 
 
@@ -1545,7 +1548,7 @@ class BridgeConn(object):
     def remote_shutdown(self):
         self.logger.debug("remote_shutdown")
         result = self.deserialize_from_dict(self.send_cmd({CMD: SHUTDOWN}))
-        print(result)
+
         if SHUTDOWN in result and result[SHUTDOWN]:
             # shutdown received - as a gross hack, send a followup that we don't expect to return, to unblock some loops and actually let things shutdown
             self.send_cmd({CMD: SHUTDOWN}, get_response=False)
@@ -1782,6 +1785,7 @@ class BridgeServer(
         if self.is_serving:
             self.logger.info("Shutting down bridge")
             self.is_serving = False
+            self.server.shutdown()  # shutdown the socket server
             self.server.server_close()
 
 
