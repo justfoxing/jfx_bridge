@@ -28,9 +28,6 @@ import textwrap
 import types
 import collections
 
-import cProfile
-import pstats
-
 __version__ = "0.0.0"  # automatically patched by setup.py when packaging
 
 # record the python version we're running locally, for when we need to do 2/3 stuff
@@ -563,8 +560,16 @@ class BridgeCommandHandler(socketserver.BaseRequestHandler):
         # if we're getting debug logs, also record a profile for serving each client connection. Little bit gross to combine the two concepts, but they're related and saves having to add another flag
         pr = None
         if self.server.bridge.logger.level == logging.DEBUG:
-            pr = cProfile.Profile()
-            pr.enable()
+            try:
+                import cProfile
+                import pstats
+
+                pr = cProfile.Profile()
+                pr.enable()
+            except ImportError:
+                self.server.bridge.logger.debug(
+                    "cProfile/pstats not available, won't profile"
+                )
 
         peer = self.request.getpeername()
         self.server.bridge.logger.warn("Handling connection from {}".format(peer))
