@@ -137,6 +137,7 @@ BRIDGE_PREFIX = "_bridge"
 # Comms v6 passes handles for dicts and lists to allow them to be remotely mutable - one day, I'll support backwards compatibility
 MIN_SUPPORTED_COMMS_VERSION = COMMS_VERSION_6
 MAX_SUPPORTED_COMMS_VERSION = COMMS_VERSION_6
+CURRENT_COMMS_VERSION = COMMS_VERSION_6
 
 DEFAULT_RESPONSE_TIMEOUT = 2  # seconds
 
@@ -411,7 +412,7 @@ class BridgeCommandHandlerThread(threading.Thread):
                     # pack a minimal error, so the other end doesn't have to wait for a timeout
                     result = json.dumps(
                         {
-                            VERSION: COMMS_VERSION_6,
+                            VERSION: CURRENT_COMMS_VERSION,
                             TYPE: ERROR,
                             ID: cmd[ID],
                         }
@@ -504,6 +505,7 @@ class BridgeReceiverThread(threading.Thread):
     ERROR_UNSUPPORTED_VERSION = json.dumps(
         {
             ERROR: True,
+            VERSION: CURRENT_COMMS_VERSION,
             MAX_VERSION: MAX_SUPPORTED_COMMS_VERSION,
             MIN_VERSION: MIN_SUPPORTED_COMMS_VERSION,
         }
@@ -1038,7 +1040,7 @@ class BridgeConn(object):
         """
         cmd_id = str(uuid.uuid4())  # used to link commands and responses
         envelope_dict = {
-            VERSION: COMMS_VERSION_6,
+            VERSION: CURRENT_COMMS_VERSION,
             ID: cmd_id,
             TYPE: CMD,
             CMD: command_dict,
@@ -1602,7 +1604,7 @@ class BridgeConn(object):
 
     def handle_command(self, message_dict, want_response=True):
         response_dict = {
-            VERSION: COMMS_VERSION_6,
+            VERSION: CURRENT_COMMS_VERSION,
             ID: message_dict[ID],
             TYPE: RESULT,
             RESULT: {},
