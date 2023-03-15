@@ -3,6 +3,10 @@ on: [push]
 jobs:
   test: 
     runs-on: ubuntu-latest
+    
+    env:
+      JYTHON_URL: https://repo1.maven.org/maven2/org/python/jython-standalone/2.7.3/jython-standalone-2.7.3.jar
+      JYTHON_PATH: ~/jython-standalone.jar
 
     strategy:
         fail-fast: false # we don't fail fast, we want info on all the failed tests for all our combinations, not just the first one to fail
@@ -23,7 +27,25 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.client_version }}
+          
+      - name: Setup Java for jython
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          
+      - name: Cache Jython
+        id: cache-jython
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.JYTHON_PATH }}
+          key: ${{ env.JYTHON_URL }}
 
+      - name: Download Jython
+        if: steps.cache-jython.outputs.cache-hit != 'true'
+        run: | 
+          wget -nv -O ${{ env.JYTHON_PATH }} ${{ env.JYTHON_URL }}
+          
       - name: Test py3 client with pytest (3.7+)
         shell: bash
         env:
@@ -35,7 +57,7 @@ jobs:
         run: |
             set -eo pipefail
             python${{ matrix.client_version }} -m pip install pytest
-            mkdir test-reports
+            mkdir -p test-reports
             touch $SRV_ERR_LOG
             python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
@@ -53,11 +75,29 @@ jobs:
         run: |
             set -eo pipefail
             python${{ matrix.client_version }} -m pip install nose
-            mkdir test-reports
+            mkdir -p test-reports
             touch $SRV_ERR_LOG
             python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
             python${{ matrix.client_version }} -m nose --nocapture --nologcapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
+            
+            
+      - name: Test against jython server
+        shell: bash
+        env:
+            TEST_PORT: 4444
+            SRV_ERR_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-jython.err
+            SRV_OUT_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-jython.log
+            CLI_OUT_LOG: test-reports/test_bridge_client-${{ matrix.client_version }}-jython.log
+        if: startsWith( matrix.client_version, '3.' )
+        run: |
+            set -eo pipefail
+            python${{ matrix.client_version }} -m pip install pytest
+            mkdir -p test-reports
+            touch $SRV_ERR_LOG
+            java -jar ${{ env.JYTHON_PATH }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
+            ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
+            python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
             
       - name: Upload artifacts
         uses: actions/upload-artifact@v3

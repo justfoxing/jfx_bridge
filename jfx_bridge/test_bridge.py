@@ -11,8 +11,6 @@ import sys
 import os
 import functools
 from collections import OrderedDict
-import cProfile
-import pstats
 
 from . import bridge
 from . import test_module
@@ -47,9 +45,16 @@ class TestBridge(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # setup cprofile to profile (most) of the tests
-        cls.pr = cProfile.Profile()
-        cls.pr.enable()
+        cls.pr = None
+        try:
+            # setup cprofile to profile (most) of the tests
+            import cProfile
+
+            cls.pr = cProfile.Profile()
+            cls.pr.enable()
+        except ImportError:
+            pass  # expected for jython
+
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
@@ -64,9 +69,12 @@ class TestBridge(unittest.TestCase):
                 "TestBridge Total", cls.test_bridge.get_stats() - cls.total_start_stats
             )
         )
-        p = pstats.Stats(cls.pr)
-        p.sort_stats("cumulative")
-        p.print_stats()
+        if cls.pr is not None:
+            import pstats
+
+            p = pstats.Stats(cls.pr)
+            p.sort_stats("cumulative")
+            p.print_stats()
 
     @print_stats
     def test_import(self):
@@ -501,7 +509,7 @@ class TestBridge(unittest.TestCase):
         """Test that we don't magically hash unhashable objects"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
-        with self.assertRaises(TypeError):
+        with self.assertRaises((TypeError, BridgeException)):
             hash(dq)
 
     @print_stats
@@ -797,8 +805,15 @@ class TestBridgeMutableContainers(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.pr = cProfile.Profile()
-        cls.pr.enable()
+        cls.pr = None
+        try:
+            # setup cprofile to profile (most) of the tests
+            import cProfile
+
+            cls.pr = cProfile.Profile()
+            cls.pr.enable()
+        except ImportError:
+            pass  # expected for jython
         port = int(os.environ.get("TEST_PORT", bridge.DEFAULT_SERVER_PORT))
         cls.test_bridge = bridge.BridgeClient(
             connect_to_port=port, loglevel=logging.DEBUG, record_stats=True
@@ -814,9 +829,12 @@ class TestBridgeMutableContainers(unittest.TestCase):
                 cls.test_bridge.get_stats() - cls.total_start_stats,
             )
         )
-        p = pstats.Stats(cls.pr)
-        p.sort_stats("cumulative")
-        p.print_stats()
+        if cls.pr is not None:
+            import pstats
+
+            p = pstats.Stats(cls.pr)
+            p.sort_stats("cumulative")
+            p.print_stats()
 
     @print_stats
     def test_mutable_list_set_index(self):
