@@ -49,10 +49,12 @@ except NameError:  # py3 has no unicode
 
 # need to pick up java.lang.Throwable as an exception type if we're in a jython context
 EXCEPTION_TYPES = None
+IN_JAVA = False
 try:
     import java
 
     EXCEPTION_TYPES = (Exception, java.lang.Throwable)
+    IN_JAVA = True
 except ImportError:
     # Nope, just normal python here
     EXCEPTION_TYPES = (Exception,)
@@ -1190,6 +1192,33 @@ class BridgeConn(object):
                     )
                 )
 
+        containers_to_check = []
+        if IN_JAVA:
+            # java methods won't operate on our bridged lists correctly (tries to turn them into java.util.lists). Instead, we'll extract them to lists they can work with, record the values, then check them after and update the other end if necessary. In theory, local python methods can call these java methods, so just assume anything is a possibility. TODO also apply this to local_exec.
+            new_args = []
+            for arg in args:
+                if isinstance(arg, BridgedListProxy):
+                    # provide a copy of the list
+                    new_list = list(arg.data)
+                    new_args.append(new_list)
+                    # record the proxy and the copied list, for easy checking later
+                    containers_to_check.append((arg, new_list))
+                else:
+                    new_args.append(arg)
+            args = new_args
+
+            new_kwargs = {}
+            for key, value in kwargs.items():
+                if isinstance(value, BridgedListProxy):
+                    # provide a copy of the list
+                    new_list = list(value.data)
+                    new_kwargs[key] = new_list
+                    # record the proxy and the copied list, for easy checking later
+                    containers_to_check.append((value, new_list))
+                else:
+                    new_kwargs[key] = value
+            kwargs = new_kwargs
+
         result = None
         try:
             target_callable = self.get_object_by_handle(handle)
@@ -1198,6 +1227,12 @@ class BridgeConn(object):
                 result = target_callable(*args, **kwargs)
             else:
                 result = self.local_call_hook(self, target_callable, *args, **kwargs)
+
+            if len(containers_to_check) > 0:
+                for proxy, local_copy in containers_to_check:
+                    # bridged_writeback handles checking if the container has been updated - it won't do anything if it doesn't need to
+                    proxy._bridged_writeback(local_copy)
+
         except EXCEPTION_TYPES as e:
             result = e
             if not isinstance(e, Exception):
@@ -1447,12 +1482,28 @@ class BridgeConn(object):
                 self.logger.debug("Falling back:\nlocal_eval {}".format(args_dict))
 
         try:
+            kwargs = args[KWARGS]
+            containers_to_check = []
+            if IN_JAVA:
+                # we handle bridged list arguments as per local_call in case of modifications by java methods
+                new_kwargs = {}
+                for key, value in kwargs.items():
+                    if isinstance(value, BridgedListProxy):
+                        # provide a copy of the list
+                        new_list = list(value.data)
+                        new_kwargs[key] = new_list
+                        # record the proxy and the copied list, for easy checking later
+                        containers_to_check.append((value, new_list))
+                    else:
+                        new_kwargs[key] = value
+                kwargs = new_kwargs
+
             """the import __main__ trick allows accessing all the variables that the bridge imports,
             so evals will run within the global context of what started the bridge, and the arguments
             supplied as kwargs will override that"""
             eval_expr = args[EXPR]
             eval_globals = importlib.import_module("__main__").__dict__
-            eval_locals = args[KWARGS]
+            eval_locals = kwargs
             # do the eval, or defer to the hook if we've registered one
             if self.local_eval_hook is None:
                 result = eval(eval_expr, eval_globals, eval_locals)
@@ -1460,6 +1511,12 @@ class BridgeConn(object):
                 result = self.local_eval_hook(
                     self, eval_expr, eval_globals, eval_locals
                 )
+
+            if len(containers_to_check) > 0:
+                for proxy, local_copy in containers_to_check:
+                    # bridged_writeback handles checking if the container has been updated - it won't do anything if it doesn't need to
+                    proxy._bridged_writeback(local_copy)
+
             self.logger.debug("local_eval: Finished evaluating")
         except EXCEPTION_TYPES as e:
             result = e
@@ -1505,18 +1562,40 @@ class BridgeConn(object):
                 self.logger.debug("Falling back:\nlocal_exec {}".format(args_dict))
 
         try:
+            kwargs = args[KWARGS]
+            containers_to_check = []
+            if IN_JAVA:
+                # we handle bridged list arguments as per local_call in case of modifications by java methods
+                new_kwargs = {}
+                for key, value in kwargs.items():
+                    if isinstance(value, BridgedListProxy):
+                        # provide a copy of the list
+                        new_list = list(value.data)
+                        new_kwargs[key] = new_list
+                        # record the proxy and the copied list, for easy checking later
+                        containers_to_check.append((value, new_list))
+                    else:
+                        new_kwargs[key] = value
+                kwargs = new_kwargs
+
             """the import __main__ trick allows accessing all the variables that the bridge imports,
             so execs will run within the global context of what started the bridge, and the arguments
             supplied as kwargs will override that"""
             exec_expr = args[EXPR]
             exec_globals = importlib.import_module("__main__").__dict__
             # unlike remote_eval, we add the kwargs to the globals, because the most common use of remote_exec is to define a function/class, and locals aren't accessible in those definitions
-            exec_globals.update(args[KWARGS])
+            exec_globals.update(kwargs)
             # do the exec, or defer to the hook if we've registered one
             if self.local_exec_hook is None:
                 exec(exec_expr, exec_globals)
             else:
                 self.local_exec_hook(self, exec_expr, exec_globals)
+
+            if len(containers_to_check) > 0:
+                for proxy, local_copy in containers_to_check:
+                    # bridged_writeback handles checking if the container has been updated - it won't do anything if it doesn't need to
+                    proxy._bridged_writeback(local_copy)
+
             self.logger.debug("local_exec: Finished executing")
         except EXCEPTION_TYPES as e:
             result = e
@@ -2334,7 +2413,7 @@ class BridgedModuleFinderLoader:
         return target
 
 
-# Get UserDict/UserList for using with the mutable containers
+# Get UserDict for using with the mutable containers
 try:
     from UserDict import UserDict  # py2
     from UserList import UserList
@@ -2346,8 +2425,7 @@ class BridgedMutableProxy(object):
     """Base container for a BridgedObject connected to a remote list/dict, as well as a local cache of the list/dict. When created, we use the local cache for any read operations. Once a write operation is performed, though, we send the write back remotely, and discard the cache - future reads will be against the remote container
     TODO is it worth duplicating the write operations into the cache, or re-reading the cache, so local reads after remote writes don't need to be bridged?
 
-    We combine this with UserDict/UserList to ensure our method wrappers are called for all
-    functionality (inheriting from just dict on py2.7 didn't allow us to do **dict style unpacking correctly.
+    For dicts, we combine this with UserDict to ensure our method wrappers are called for all functionality (inheriting from just dict on py2.7 didn't allow us to do **dict style unpacking correctly. For lists, we inherit from ordinary list - Jython maps that to java.util.List for use in java functions, but doesn't do it for UserList.
     """
 
     def __init__(self, bridged_obj, local_cache):
@@ -2401,6 +2479,46 @@ class BridgedMutableProxy(object):
             repr_string = repr_string.encode("unicode_escape")
 
         return repr_string
+
+    def _bridged_writeback(self, new_data):
+        """Do a manual, bulk replacement of the remote target's data with the new data. Checks to see if new data matches the local data first - if it does, no write occurs. Extra values in the remote that aren't in the new data are removed.
+
+        Used to handle doing manual updates in Jython, where java functions may make changes that don't go through the python mechanisms (e.g., for list/java.util.List)
+
+        Note that while this is technically a mutating operation, because we're matching the state of the remote data and the local cache, we'll keep the local cache around.
+        """
+        if self.data != new_data:
+            # either the new data is an update, or we've mutated and don't have a local cache anymore (so assume it's an update)
+
+            if isinstance(self, BridgedListProxy):
+                if not isinstance(new_data, (list, UserList)):
+                    raise Exception(
+                        "Writeback type {} doesn't match proxy type {}".format(
+                            type(new_data), self
+                        )
+                    )
+
+                # a list update can be done with a slice of [:] and the values - this will automatically truncate/expand the list as required
+                self._bridged_obj.__setitem__(slice(None, None), OneWayList(new_data))
+
+                # update the local_cache now with a copy of the new data, to make sure the user can't accidentally keep a hold of it and modify directly
+                self.data = list(new_data)
+            elif isinstance(self, BridgedDictProxy):
+                if not isinstance(new_data, (list, UserList)):
+                    raise Exception(
+                        "Writeback type {} doesn't match proxy type {}".format(
+                            type(new_data), self
+                        )
+                    )
+
+                # matching the dictionary state is done with a clear followed by an update
+                self._bridged_obj.clear()  # Perf: this is only required if there's keys in the old one that aren't in the new. Unlikely to make much difference, but we could do a check to see if keys have been removed to see if we can skip this step. Probably costs more than always doing it, though.
+                self._bridged_obj.update(OneWayDict(new_data))
+
+                # update the local_cache now with a copy of the new data, to make sure the user can't accidentally keep a hold of it and modify directly
+                self.data = new_data.copy()
+            else:
+                raise Exception("Unsupported type for writeback: {}".format(self))
 
 
 # we use this to implement partialmethod-like behaviour for older pythons (partialmethod is only in python 3.4+). functools.partial by itself doesn't return something that gets the self parameter added automatically. See https://stackoverflow.com/a/60646628
@@ -2578,7 +2696,7 @@ BridgedListProxy = type(
     str("BridgedListProxy"),
     (
         BridgedMutableProxy,
-        UserList,  # We don't really need UserList instead of list, but it uses the same self.data structure as UserDict, so if we do it this way, we can share most of the code.
+        list,  # we inherit from list to map to Java.util.List in jython for ghidra bridge - UserList doesn't map the same way.
     ),
     bridged_list_methods,
 )

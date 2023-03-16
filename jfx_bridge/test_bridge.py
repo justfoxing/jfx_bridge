@@ -509,7 +509,7 @@ class TestBridge(unittest.TestCase):
         """Test that we don't magically hash unhashable objects"""
         remote_collections = self.test_bridge.remote_import("collections")
         dq = remote_collections.deque()
-        with self.assertRaises((TypeError, BridgeException)):
+        with self.assertRaises((TypeError, bridge.BridgeException)):
             hash(dq)
 
     @print_stats
@@ -1356,6 +1356,101 @@ class TestBridgeMutableContainers(unittest.TestCase):
         )
 
         self.assertEqual(match_list, remote_list, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_java_call_arg(self):
+        """Check we handle list changes made by java operations when working with a jython server, making a call with a list argument"""
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+        except:
+            # expect an import error when other end isn't jython
+            self.skipTest("Not a jython server")
+
+        match_list = [0, 0, 0]
+        local_test_list = list([1, 2, 3])
+
+        def remote_list_java_fill_arg(target_list, value):
+            import java.util.Collections
+
+            java.util.Collections.fill(target_list, value)
+
+            return target_list
+
+        remote_list = self.test_bridge.remoteify(remote_list_java_fill_arg)(
+            local_test_list, 0
+        )
+
+        self.assertEqual(match_list, remote_list, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    def test_mutable_list_java_call_kwarg(self):
+        """Check we handle list changes made by java operations when working with a jython server, making a call with a list kwarg"""
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+        except:
+            # expect an import error when other end isn't jython
+            self.skipTest("Not a jython server")
+
+        match_list = [1, 1, 1]
+        local_test_list = list([1, 2, 3])
+
+        def remote_list_java_fill_kwarg(target_list=None, value=None):
+            import java.util.Collections
+
+            java.util.Collections.fill(target_list, value)
+
+            return target_list
+
+        remote_list = self.test_bridge.remoteify(remote_list_java_fill_kwarg)(
+            target_list=local_test_list, value=1
+        )
+
+        self.assertEqual(match_list, remote_list, "Remote list didn't match target")
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_java_remote_exec_kwarg(self):
+        """Check we handle list changes made by java operations when working with a jython server, making a remote exec call with a list kwarg"""
+        remote_java = None
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+        except:
+            # expect an import error when other end isn't jython
+            self.skipTest("Not a jython server")
+
+        match_list = [2, 2, 2]
+        local_test_list = list([1, 2, 3])
+
+        self.test_bridge.remote_exec(
+            "java.util.Collections.fill(target, value)",
+            java=remote_java,
+            target=local_test_list,
+            value=2,
+        )
+
+        self.assertEqual(match_list, local_test_list, "Local list didn't match target")
+
+    @print_stats
+    def test_mutable_list_java_remote_eval_kwarg(self):
+        """Check we handle list changes made by java operations when working with a jython server, making a remote eval call with a list kwarg"""
+        remote_java = None
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+        except:
+            # expect an import error when other end isn't jython
+            self.skipTest("Not a jython server")
+
+        match_list = [3, 3, 3]
+        local_test_list = list([1, 2, 3])
+
+        self.test_bridge.remote_eval(
+            "java.util.Collections.fill(target, value)",
+            java=remote_java,
+            target=local_test_list,
+            value=3,
+        )
+
         self.assertEqual(match_list, local_test_list, "Local list didn't match target")
 
     @print_stats
