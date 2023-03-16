@@ -46,58 +46,49 @@ jobs:
         run: | 
           wget -nv -O ${{ env.JYTHON_PATH }} ${{ env.JYTHON_URL }}
           
-      - name: Test py3 client with pytest (3.7+)
+      - name: Test python client to python server
         shell: bash
         env:
             TEST_PORT: 2222
             SRV_ERR_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-${{ matrix.server_version }}.err
             SRV_OUT_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-${{ matrix.server_version }}.log
             CLI_OUT_LOG: test-reports/test_bridge_client-${{ matrix.client_version }}-${{ matrix.server_version }}.log
-        if: startsWith( matrix.client_version, '3.' )
         run: |
             set -eo pipefail
-            python${{ matrix.client_version }} -m pip install pytest
             mkdir -p test-reports
             touch $SRV_ERR_LOG
             python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
-        
-        
-      - name: Test py2 client with nose
-        shell: bash
-        env:
-            TEST_PORT: 2222
-            SRV_ERR_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-${{ matrix.server_version }}.err
-            SRV_OUT_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-${{ matrix.server_version }}.log
-            CLI_OUT_LOG: test-reports/test_bridge_client-${{ matrix.client_version }}-${{ matrix.server_version }}.log
-        if: startsWith( matrix.client_version, '2.' )
-        run: |
-            set -eo pipefail
-            python${{ matrix.client_version }} -m pip install nose
-            mkdir -p test-reports
-            touch $SRV_ERR_LOG
-            python${{ matrix.server_version }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
-            ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python${{ matrix.client_version }} -m nose --nocapture --nologcapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
+            if [[ ${{ matrix.client_version }} == 3.* ]]
+            then
+                python${{ matrix.client_version }} -m pip install pytest
+                python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
+            else
+                python${{ matrix.client_version }} -m pip install nose
+                python${{ matrix.client_version }} -m nose --nocapture --nologcapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
+            fi            
             
-            
-      - name: Test against jython server
+      - name: Test python client to jython server
         shell: bash
         env:
             TEST_PORT: 4444
             SRV_ERR_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-jython.err
             SRV_OUT_LOG: test-reports/test_bridge_server-${{ matrix.client_version }}-jython.log
             CLI_OUT_LOG: test-reports/test_bridge_client-${{ matrix.client_version }}-jython.log
-        if: startsWith( matrix.client_version, '3.' )
         run: |
             set -eo pipefail
-            python${{ matrix.client_version }} -m pip install pytest
             mkdir -p test-reports
             touch $SRV_ERR_LOG
             java -jar ${{ env.JYTHON_PATH }} test_bridge_server.py >${{ env.SRV_OUT_LOG }} 2> >(tee -a ${{ env.SRV_ERR_LOG }} >&2) & # Run the test jfx_bridge server
             ( tail -f ${{ env.SRV_ERR_LOG }} & ) | grep -q "jfx_bridge.bridge:serving!" # pause until we see the bridge server start logging messages
-            python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
+            if [[ ${{ matrix.client_version }} == 3.* ]]
+            then
+                python${{ matrix.client_version }} -m pip install pytest
+                python${{ matrix.client_version }} -m pytest --capture=tee-sys --junit-xml=test-reports/test-pytest-${{ matrix.client_version }}-${{ matrix.server_version }}.xml --log-cli-level=DEBUG jfx_bridge/test_bridge.py | tee ${{ env.CLI_OUT_LOG }}
+            else
+                python${{ matrix.client_version }} -m pip install nose
+                python${{ matrix.client_version }} -m nose --nocapture --nologcapture --with-xunit --xunit-file=test-reports/test-nose-${{ matrix.client_version }}-${{ matrix.server_version }}.xml | tee ${{ env.CLI_OUT_LOG }}
+            fi
             
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
