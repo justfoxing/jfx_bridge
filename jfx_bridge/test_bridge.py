@@ -918,6 +918,12 @@ class TestBridgeMutableContainers(unittest.TestCase):
         # not relevant for 2->2 setups - they don't have list.clear on either side
         if local_python_version == 2 and remote_python_version == 2:
             self.skipTest("Test irrelevant for non python 3 setups")
+        # not relevant for jython server - we extract the list from the proxy before operating on it, so our clear handler isn't available
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+            self.skipTest("Not relevant for jython")
+        except:
+            pass
 
         match_list = [3, 6, 7, 3]
         local_test_list = list(match_list)
@@ -1220,6 +1226,13 @@ class TestBridgeMutableContainers(unittest.TestCase):
         # not relevant for 2->2 setups - they don't have list.copy on either side
         if local_python_version == 2 and remote_python_version == 2:
             self.skipTest("Test irrelevant for non python 3 setups")
+
+        # not relevant for jython server - we extract the list from the proxy before operating on it, so our clear handler isn't available
+        try:
+            remote_java = self.test_bridge.remote_import("java")
+            self.skipTest("Not relevant for jython")
+        except:
+            pass
 
         match_list = [3, 6, 7, 3, 5]
         local_test_list = list(match_list)
