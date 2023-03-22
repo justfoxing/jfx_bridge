@@ -503,16 +503,6 @@ class BridgeCommandHandlerThreadPool(object):
 class BridgeReceiverThread(threading.Thread):
     """class to handle running a thread to receive bridge commands/responses and direct accordingly"""
 
-    # If we don't know how to handle the version, reply back with an error and the highest version we do support
-    ERROR_UNSUPPORTED_VERSION = json.dumps(
-        {
-            ERROR: True,
-            VERSION: CURRENT_COMMS_VERSION,
-            MAX_VERSION: MAX_SUPPORTED_COMMS_VERSION,
-            MIN_VERSION: MIN_SUPPORTED_COMMS_VERSION,
-        }
-    )
-
     def __init__(self, bridge_conn):
         super(BridgeReceiverThread, self).__init__()
 
@@ -548,9 +538,29 @@ class BridgeReceiverThread(threading.Thread):
                         threadpool.handle_command(msg_dict)
                 else:
                     # bad version
-                    self.bridge_conn.send_data(
-                        BridgeReceiverThread.ERROR_UNSUPPORTED_VERSION
-                    )
+                    # there's a chance that this is because the server is responding with a "bad version" error, and we don't support its version. We'll assume we'll keep the basic syntax close enough to make it doable.
+                    if msg_dict.get(TYPE) == ERROR:
+                        self.bridge_conn.add_response(msg_dict)
+                    else:
+                        # nope, it's the other end that sent the version we don't support first. Log it, and tell them.
+                        self.bridge_conn.logger.error(
+                            "Bad version received: {}".format(msg_dict)
+                        )
+
+                        # reply back with an error and the highest version we do support
+                        version_error = json.dumps(
+                            {
+                                TYPE: ERROR,
+                                VERSION: CURRENT_COMMS_VERSION,
+                                MAX_VERSION: MAX_SUPPORTED_COMMS_VERSION,
+                                MIN_VERSION: MIN_SUPPORTED_COMMS_VERSION,
+                                ID: msg_dict.get(
+                                    ID
+                                ),  # we'll hope we've got an id field we recognize across versions, but if not, it'll just be set to none
+                            }
+                        ).encode("utf-8")
+                        self.bridge_conn.send_data(version_error)
+
             except EXCEPTION_TYPES as e:
                 # eat exceptions and continue, don't want a bad message killing the recv loop
                 self.bridge_conn.logger.exception(e)
@@ -682,7 +692,12 @@ class BridgeResponseManager(object):
     def add_response(self, response_dict):
         """response received - register it, then set the event for it"""
         with self.response_lock:
-            response_id = response_dict[ID]
+            response_id = response_dict.get(ID)
+            if response_id is None:
+                raise BridgeOperationException(
+                    "Response without an id: {}".format(response_dict)
+                )
+
             if response_id not in self.response_dict:
                 # response hasn't been waited for yet. create the entry
                 self.response_dict[response_id] = BridgeResponse(response_id)
@@ -704,6 +719,21 @@ class BridgeResponseManager(object):
         if TYPE in data:
             if data[TYPE] == ERROR:
                 # problem with the bridge itself, raise an exception
+                if MAX_VERSION in data:
+                    # we make version errors specific so a user can fix easier
+                    other_version = data.get(VERSION, "<missing version>")
+                    min_version = data.get(VERSION, "<missing minimum version>")
+                    max_version = data.get(VERSION, "<missing maximum version>")
+                    raise BridgeOperationException(
+                        "Comms version mismatch. Make sure your ghidra_bridge client and server are running the same version. Version on this side is {}. Other side reported version {}, wants this side's versions to be between {} and {}.".format(
+                            CURRENT_COMMS_VERSION,
+                            other_version,
+                            min_version,
+                            max_version,
+                        )
+                    )
+
+                # other, non-version issues...
                 raise BridgeOperationException(data)
 
         with self.response_lock:
