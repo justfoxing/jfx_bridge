@@ -1213,6 +1213,10 @@ class TestBridgeMutableContainers(unittest.TestCase):
             return new_list
 
         remote_result = self.test_bridge.remoteify(remote_list_create)(local_test_list)
+        self.assertTrue(
+            remote_result._bridge_use_local_cache,
+            "Proxy for remote list isn't using local cache, but hasn't been modified",
+        )
 
         self.assertEqual(match_list, remote_result, "Remote list didn't match target")
         self.assertEqual(match_list, local_test_list, "Local list didn't match target")
@@ -1761,6 +1765,10 @@ class TestBridgeMutableContainers(unittest.TestCase):
             return new_dict
 
         remote_result = self.test_bridge.remoteify(remote_dict_create)(local_test_dict)
+        self.assertTrue(
+            remote_result._bridge_use_local_cache,
+            "Proxy for remote dict isn't using local cache, but hasn't been modified",
+        )
 
         self.assertEqual(match_dict, remote_result, "Remote dict didn't match target")
         self.assertEqual(match_dict, local_test_dict, "Local dict didn't match target")
@@ -1792,7 +1800,7 @@ class TestBridgeMutableContainers(unittest.TestCase):
         # str should be the same as the matching dict
         self.assertEqual(str(match_dict), str(remote_result))
 
-        # repr should look like <BridgedDictProxy(<_bridged_dict('{'a': 1, 'c': 4, 'b': 10, 'x': 20}', type=dict, handle=d1a00ab2-422b-4c6a-ba0d-681cb2d9f675)>, local_cache={'a': 1, 'x': 20, 'c': 4, 'b': 10})> before any modification happens
+        # repr should look like <BridgedDictProxy(<_bridged_collections.OrderedDict('OrderedDict([('a', 1), ('c', 4), ('b', 10), ('x', 20)])', type=collections.OrderedDict, handle=882f6c94-ed41-4966-90b8-daf5248e760f)>, local_cache={'a': 1, 'c': 4, 'b': 10, 'x': 20}, use_local_cache=True)> before any modification happens
         remote_rep = repr(remote_result)
         self.assertIn("BridgedDictProxy", remote_rep)
         self.assertIn("'" + str(match_dict) + "'", remote_rep)
@@ -1844,6 +1852,11 @@ class TestBridgeMutableContainers(unittest.TestCase):
         remote_dict_result, remote_unpacked_dict = self.test_bridge.remoteify(
             remote_dict_unpack
         )(local_test_dict)
+
+        self.assertTrue(
+            remote_unpacked_dict._bridge_use_local_cache,
+            "Proxy for remote unpack isn't using local cache, but shouldn't have been modified",
+        )
 
         self.assertEqual(
             match_dict, remote_dict_result, "Remote dict didn't match target"

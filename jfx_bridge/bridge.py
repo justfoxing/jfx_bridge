@@ -2460,15 +2460,38 @@ class BridgedMutableProxy(object):
 
     def __init__(self, bridged_obj, local_cache):
         self._bridged_obj = bridged_obj
-        self.data = local_cache  # The core of UserDict/UserList initialisation - note: proper userdict/list initialisation takes a copy of this so the initial data can be released, but we don't need that.
+        self._bridge_use_local_cache = True
+
+        # note: we can't pass local_cache straight in to the init here - it goes recursive for some reason. TODO work that out
+        super(BridgedMutableProxy, self).__init__()  # init the parent list/UserDict
+
+        # load the local_cache
+        if isinstance(local_cache, list):
+            super(BridgedMutableProxy, self).extend(local_cache)
+        elif isinstance(local_cache, dict):
+            self.data = {} # manual init for UserDict in py2 - TODO why is this necessary?
+            # note: we can't use update(), because it calls __setitem__ internally, which devolves back to the BridgedDictProxy.__setitem__, which marks the dict as mutated and puts the changes to the remote. We need to control which __setitem__ gets used directly
+            for k, v in local_cache.items():
+                super(BridgedMutableProxy, self).__setitem__(k, v)
+        else:
+            raise Exception(
+                "Unsupported type for BridgedMutableProxy: {} is type {}".format(
+                    bridged_obj, type(local_cache)
+                )
+            )
 
     def __str__(self):
         """Special implementation so logging doesn't recurse with getattr("__str__")
         Provides the [1,2,3]/{"a":1,"b":2} view of the object
         """
         str_val = None
-        if self.data is not None:
-            str_val = str(self.data)
+
+        if self._bridge_use_local_cache:
+            if isinstance(self, UserDict):
+                # special handling for UserDict - its __str__ doesn't play well
+                str_val = str(self.data)
+            else:
+                str_val = super(BridgedMutableProxy, self).__str__()
         else:
             self._bridged_obj._bridge_conn.logger.debug(
                 "Local cache has been mutated. Using remote __str__()"
@@ -2500,8 +2523,11 @@ class BridgedMutableProxy(object):
             self._bridged_obj._bridge_handle,
         )
 
-        repr_string = "<{}({}, local_cache={})>".format(
-            type(self).__name__, bridged_obj_repr, repr(self.data)
+        repr_string = "<{}({}, local_cache={}, use_local_cache={})>".format(
+            type(self).__name__,
+            bridged_obj_repr,
+            super(BridgedMutableProxy, self).__repr__(),
+            self._bridge_use_local_cache,
         )
 
         if PYTHON_VERSION == 2:
@@ -2517,7 +2543,7 @@ class BridgedMutableProxy(object):
 
         Note that while this is technically a mutating operation, because we're matching the state of the remote data and the local cache, we'll keep the local cache around.
         """
-        if self.data != new_data:
+        if super(BridgedMutableProxy, self).__ne__(new_data):
             # either the new data is an update, or we've mutated and don't have a local cache anymore (so assume it's an update)
 
             if isinstance(self, BridgedListProxy):
@@ -2531,10 +2557,13 @@ class BridgedMutableProxy(object):
                 # a list update can be done with a slice of [:] and the values - this will automatically truncate/expand the list as required
                 self._bridged_obj.__setitem__(slice(None, None), OneWayList(new_data))
 
-                # update the local_cache now with a copy of the new data, to make sure the user can't accidentally keep a hold of it and modify directly
-                self.data = list(new_data)
+                # update the local_cache now
+                super(BridgedMutableProxy, self).__setitem__(
+                    slice(None, None), new_data
+                )
+
             elif isinstance(self, BridgedDictProxy):
-                if not isinstance(new_data, (list, UserList)):
+                if not isinstance(new_data, (dict, UserDict)):
                     raise Exception(
                         "Writeback type {} doesn't match proxy type {}".format(
                             type(new_data), self
@@ -2545,10 +2574,16 @@ class BridgedMutableProxy(object):
                 self._bridged_obj.clear()  # Perf: this is only required if there's keys in the old one that aren't in the new. Unlikely to make much difference, but we could do a check to see if keys have been removed to see if we can skip this step. Probably costs more than always doing it, though.
                 self._bridged_obj.update(OneWayDict(new_data))
 
-                # update the local_cache now with a copy of the new data, to make sure the user can't accidentally keep a hold of it and modify directly
-                self.data = new_data.copy()
+                # update the local_cache now
+                super(BridgedMutableProxy, self).clear()
+                # note: we can't use update(), because it calls __setitem__ internally, which devolves back to the BridgedDictProxy.__setitem__, which marks the dict as mutated and puts the changes to the remote. We need to control which __setitem__ gets used directly
+                for k, v in local_cache.items():
+                    super(BridgedMutableProxy, self).__setitem__(k, v)
             else:
                 raise Exception("Unsupported type for writeback: {}".format(self))
+
+            # make sure we're using the local cache still/again, since we've just confirmed it matches the remote
+            self._bridge_use_local_cache = True
 
 
 # we use this to implement partialmethod-like behaviour for older pythons (partialmethod is only in python 3.4+). functools.partial by itself doesn't return something that gets the self parameter added automatically. See https://stackoverflow.com/a/60646628
@@ -2571,7 +2606,10 @@ def _bridged_class_mutate_wrapper(fn_name, instance, *args, **kwargs):
     instance._bridged_obj._bridge_conn.logger.debug(
         "Mutating container {} with {}()".format(repr(instance._bridged_obj), fn_name)
     )
-    instance.data = None  # TODO do we want to poison this?
+
+    instance._bridge_use_local_cache = (
+        False  # TODO do we want to poison the local data?
+    )
     return getattr(instance._bridged_obj, fn_name)(*args, **kwargs)
 
 
@@ -2579,9 +2617,9 @@ def _bridged_class_read_wrapper(fn_name, instance, *args, **kwargs):
     """Wrapper function around methods that _don't_ modify the backing container. When this is called, we direct it to the local cache if that's still valid, or pass it onto the remote backing list if a mutate has been called"""
     target_fn = None
 
-    if instance.data is not None:
+    if instance._bridge_use_local_cache:
         try:
-            target_fn = getattr(instance.data, fn_name)
+            target_fn = getattr(super(BridgedMutableProxy, instance), fn_name)
         except AttributeError:
             # this happens if we're asking for a method that's not defined on the local cached version (e.g., list.copy()/clear() only exists on py3 lists, so the py2 local version won't have it).
             # Not sure if this will ever happen - you'd need to be sending code to py2 that is actually only py3 compliant, but easy enough to handle as a fallback.
@@ -2631,7 +2669,7 @@ def _bridged_list_clear_handler(instance):
     instance._bridged_obj._bridge_conn.logger.debug(
         "Mutating container {} with clear()".format(repr(instance._bridged_obj))
     )
-    instance.data = None  # TODO do we want to poison this?
+    instance._bridge_use_local_cache = False  # TODO do we want to poison local data?
     try:
         # try calling clear
         getattr(instance._bridged_obj, "clear")()
@@ -2648,7 +2686,7 @@ def _bridged_dict_ior_handler(instance, new_vals):
     instance._bridged_obj._bridge_conn.logger.debug(
         "Mutating container {} with __ior__()".format(repr(instance._bridged_obj))
     )
-    instance.data = None  # TODO do we want to poison this?
+    instance._bridge_use_local_cache = False  # TODO do we want to poison local data?
     try:
         # try calling ior
         return getattr(instance._bridged_obj, "__ior__")(new_vals)
